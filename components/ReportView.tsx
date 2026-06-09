@@ -3,6 +3,12 @@
 import type { ScanReport, Severity } from "@/lib/types";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
+declare global {
+  interface Window {
+    pendo?: { track: (event: string, properties?: Record<string, string | number | boolean>) => void };
+  }
+}
+
 const severityClass: Record<Severity, string> = {
   critical: "severity-critical",
   high: "severity-high",
@@ -23,6 +29,15 @@ export function ReportView({ report, stripeLink }: { report: ScanReport; stripeL
   async function copyShareLink() {
     await navigator.clipboard.writeText(window.location.href);
     await record("share_clicked", report.id);
+
+    if (typeof window !== "undefined" && window.pendo) {
+      window.pendo.track("share_clicked", {
+        reportId: report.id,
+        grade: report.grade,
+        score: report.score,
+        findingCount: report.findings.length,
+      });
+    }
   }
 
   return (
@@ -132,7 +147,17 @@ export function ReportView({ report, stripeLink }: { report: ScanReport; stripeL
             <a
               className="secondary-button"
               href={stripeLink}
-              onClick={() => void record("stripe_clicked", report.id)}
+              onClick={() => {
+                void record("stripe_clicked", report.id);
+                if (typeof window !== "undefined" && window.pendo) {
+                  window.pendo.track("stripe_clicked", {
+                    reportId: report.id,
+                    grade: report.grade,
+                    score: report.score,
+                    findingCount: report.findings.length,
+                  });
+                }
+              }}
             >
               Founding member
             </a>

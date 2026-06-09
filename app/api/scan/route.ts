@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { recordEvent, saveReport } from "@/lib/store/reportStore";
 import { runScan } from "@/lib/scanner/runScan";
 import { scanConfig } from "@/lib/env";
+import { pendoTrack } from "@/lib/pendo";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,14 +32,51 @@ export async function POST(request: Request) {
 
   await recordEvent("scan_started");
 
+  let targetOrigin: string;
+  try {
+    targetOrigin = new URL(body.url).origin;
+  } catch {
+    return NextResponse.json({ error: "Invalid URL provided." }, { status: 400 });
+  }
+  const authorizedSupabaseProbe = body.authorizedSupabaseProbe === true;
+  const requester = requesterFrom(request);
+
+  await pendoTrack(
+    "scan_started",
+    {
+      targetOrigin,
+      authorizedSupabaseProbe,
+    },
+    { ip: requester.ip, userAgent: requester.userAgent }
+  );
+
   try {
     const report = await runScan({
       targetUrl: body.url,
-      authorizedSupabaseProbe: body.authorizedSupabaseProbe === true,
-      requester: requesterFrom(request)
+      authorizedSupabaseProbe,
+      requester
     });
     await saveReport(report);
     await recordEvent("scan_completed", report.id);
+
+    await pendoTrack(
+      "scan_completed",
+      {
+        reportId: report.id,
+        targetOrigin: report.targetOrigin,
+        grade: report.grade,
+        score: report.score,
+        findingCount: report.aggregate.findingCount,
+        highestSeverity: report.aggregate.highestSeverity,
+        hasClientSecretFinding: report.aggregate.hasClientSecretFinding,
+        hasSourceMapFinding: report.aggregate.hasSourceMapFinding,
+        hasSupabaseRiskFinding: report.aggregate.hasSupabaseRiskFinding,
+        requestCount: report.scanner.requestCount,
+        checksRun: report.scanner.checksRun.join(","),
+        authorizedSupabaseProbe,
+      },
+      { ip: requester.ip, userAgent: requester.userAgent }
+    );
 
     return NextResponse.json({
       reportId: report.id,
@@ -47,6 +85,17 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Scan failed.";
+
+    await pendoTrack(
+      "scan_failed",
+      {
+        targetOrigin,
+        errorMessage: message.substring(0, 200),
+        authorizedSupabaseProbe,
+      },
+      { ip: requester.ip, userAgent: requester.userAgent }
+    );
+
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

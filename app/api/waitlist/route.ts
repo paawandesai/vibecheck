@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hashEmail } from "@/lib/scanner/redaction";
-import { recordEvent, saveWaitlistEntry } from "@/lib/store/reportStore";
+import { getReport, recordEvent, saveWaitlistEntry } from "@/lib/store/reportStore";
+import { pendoTrack } from "@/lib/pendo";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,13 @@ export async function POST(request: Request) {
     createdAt: new Date().toISOString()
   });
   await recordEvent("waitlist_submitted", body.reportId);
+
+  const referringReport = body.reportId ? await getReport(body.reportId) : null;
+  await pendoTrack("waitlist_submitted", {
+    ...(body.reportId ? { reportId: body.reportId } : {}),
+    ...(referringReport ? { referringGrade: referringReport.grade } : {}),
+    ...(referringReport ? { referringScore: referringReport.score } : {}),
+  });
 
   return NextResponse.json({ ok: true });
 }
