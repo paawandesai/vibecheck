@@ -4,7 +4,7 @@ import { analyzeSecrets } from "@/lib/scanner/secrets";
 import { checkSupabaseExposure } from "@/lib/scanner/supabase";
 import { escapeEvidence } from "@/lib/scanner/redaction";
 import { ScanBudget } from "@/lib/scanner/safeFetch";
-import { findSourceMapReferences } from "@/lib/scanner/sourceMaps";
+import { checkSourceMaps, findSourceMapReferences } from "@/lib/scanner/sourceMaps";
 import {
   cleanAssets,
   leakyAssets,
@@ -26,7 +26,7 @@ test("clean fixture has no client secret findings", () => {
 
 test("leaky fixture produces redacted high-confidence findings without raw secret storage", () => {
   const result = analyzeSecrets(leakyAssets);
-  assert.equal(result.findings.length, 2);
+  assert.equal(result.findings.length, 7);
   assert.ok(result.findings.every((finding) => finding.confidence === "confirmed"));
 
   const serialized = JSON.stringify(result.findings);
@@ -62,6 +62,41 @@ test("source map references are detected without storing source map contents", (
       mapUrl: "https://demo.example/app.js.map"
     }
   ]);
+});
+
+test("source map checker continues past inaccessible earlier map references", async () => {
+  const assets = Array.from({ length: 5 }, (_, index) => ({
+    url: `https://demo.example/chunk-${index}.js`,
+    type: "script" as const,
+    body: `console.log(${index});\n//# sourceMappingURL=chunk-${index}.js.map`,
+    truncated: false
+  }));
+  assets.push({
+    url: "https://demo.example/app.js",
+    type: "script",
+    body: "console.log('app');\n//# sourceMappingURL=/api/source-map",
+    truncated: false
+  });
+
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = input.toString();
+    if (url.endsWith("/api/source-map")) {
+      return new Response(JSON.stringify({ version: 3, sources: ["app.ts"], mappings: "" }), {
+        status: 200
+      });
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  const findings = await checkSourceMaps(assets, new ScanBudget(8), {
+    fetchImpl,
+    resolveHostname: publicResolver
+  });
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].reasonCode, "public_source_map_confirmed");
+  assert.ok(!JSON.stringify(findings).includes("app.ts"));
 });
 
 test("hostile evidence strings are escaped for report rendering", () => {

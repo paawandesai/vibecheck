@@ -5,6 +5,7 @@ import { collectPublicAssets } from "@/lib/scanner/assets";
 import { analyzeSecrets } from "@/lib/scanner/secrets";
 import { checkSourceMaps } from "@/lib/scanner/sourceMaps";
 import { checkSupabaseExposure } from "@/lib/scanner/supabase";
+import { checkInfrastructure } from "@/lib/scanner/infra";
 import { normalizeScannerUrl, ScanBudget } from "@/lib/scanner/safeFetch";
 import { safeUrlForStorage } from "@/lib/scanner/redaction";
 
@@ -53,13 +54,14 @@ export async function runScan(input: {
   const scanId = crypto.randomUUID();
   const target = normalizeScannerUrl(input.targetUrl);
   const targetOrigin = target.origin;
-  const checksRun = ["client_bundle_secrets", "exposed_source_maps"];
+  const checksRun = ["client_bundle_secrets", "exposed_source_maps", "exposed_infrastructure"];
   const checksSkipped: string[] = [];
-  const budget = new ScanBudget(12);
+  const budget = new ScanBudget(24);
 
   const assets = await collectPublicAssets(target.toString(), budget);
   const { findings: secretFindings, supabaseContext } = analyzeSecrets(assets);
   const sourceMapFindings = await checkSourceMaps(assets, budget);
+  const infraFindings = await checkInfrastructure(targetOrigin, budget);
 
   let authorization: AuthorizationArtifact | undefined;
   let supabaseFindings: Finding[] = [];
@@ -79,7 +81,7 @@ export async function runScan(input: {
     );
   }
 
-  const findings = [...secretFindings, ...sourceMapFindings, ...supabaseFindings].sort(
+  const findings = [...secretFindings, ...sourceMapFindings, ...supabaseFindings, ...infraFindings].sort(
     (a, b) => severityRank[b.severity] - severityRank[a.severity]
   );
   const score = scoreReport(findings);

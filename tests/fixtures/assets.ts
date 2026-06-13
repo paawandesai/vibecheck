@@ -28,6 +28,11 @@ export const leakyAssets: PublicAsset[] = [
       const stripe = "sk_live_1234567890abcdefghijkl";
       const supabaseUrl = "https://demo.supabase.co";
       const supabaseKey = "${supabaseServiceRoleJwt}";
+      const gemini = "AIzaSy123456789012345678901234567890123";
+      const groq = "gsk_12345678901234567890123456789012";
+      const replicate = "r8_1234567890123456789012345678901234";
+      const huggingface = "hf_1234567890123456789012345678901234";
+      const clerk = "sk_test_1234567890abcdefghijklmnopqrstu";
     `,
     truncated: false
   }

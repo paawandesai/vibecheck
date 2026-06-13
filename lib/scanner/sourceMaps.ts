@@ -1,9 +1,10 @@
 import type { Finding, PublicAsset } from "@/lib/types";
 import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
 import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/redaction";
-import { safeFetch, type ScanBudget } from "@/lib/scanner/safeFetch";
+import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
 const SOURCE_MAP_PATTERN = /[#@]\s*sourceMappingURL=([^\s*]+)/g;
+const MAX_SOURCE_MAP_REFERENCES = 8;
 
 export function findSourceMapReferences(assets: PublicAsset[]) {
   const refs = new Map<string, { mapUrl: string; assetUrl: string }>();
@@ -28,7 +29,7 @@ export function findSourceMapReferences(assets: PublicAsset[]) {
     }
   }
 
-  return [...refs.values()].slice(0, 4);
+  return [...refs.values()].slice(0, MAX_SOURCE_MAP_REFERENCES);
 }
 
 function looksLikeSourceMap(text: string) {
@@ -40,16 +41,27 @@ function looksLikeSourceMap(text: string) {
   }
 }
 
-export async function checkSourceMaps(assets: PublicAsset[], budget: ScanBudget) {
+export async function checkSourceMaps(
+  assets: PublicAsset[],
+  budget: ScanBudget,
+  safeFetchOptions: Pick<SafeFetchOptions, "fetchImpl" | "resolveHostname"> = {}
+) {
   const findings: Finding[] = [];
   const refs = findSourceMapReferences(assets);
 
   for (const ref of refs) {
-    const response = await safeFetch(ref.mapUrl, budget, {
-      maxBytes: 160_000,
-      timeoutMs: 8000,
-      allowTruncate: true
-    });
+    let response;
+    try {
+      response = await safeFetch(ref.mapUrl, budget, {
+        maxBytes: 160_000,
+        timeoutMs: 8000,
+        allowTruncate: true,
+        ...safeFetchOptions
+      });
+    } catch (err) {
+      if ((err as Error).message === "Scan request budget exceeded") throw err;
+      continue;
+    }
 
     if (!response.ok) continue;
 

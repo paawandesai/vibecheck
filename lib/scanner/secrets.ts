@@ -11,8 +11,8 @@ interface SecretPattern {
 
 const SECRET_PATTERNS: SecretPattern[] = [
   {
-    provider: "Stripe secret key",
-    reasonCode: "stripe_secret_key_in_client_bundle",
+    provider: "Stripe/Clerk secret key",
+    reasonCode: "stripe_clerk_secret_key_in_client_bundle",
     severity: "critical",
     regex: /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/g
   },
@@ -27,6 +27,30 @@ const SECRET_PATTERNS: SecretPattern[] = [
     reasonCode: "anthropic_key_in_client_bundle",
     severity: "critical",
     regex: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    provider: "Gemini API key",
+    reasonCode: "gemini_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bAIzaSy[A-Za-z0-9_-]{33}\b/g
+  },
+  {
+    provider: "Groq API key",
+    reasonCode: "groq_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bgsk_[A-Za-z0-9]{32}\b/g
+  },
+  {
+    provider: "Replicate API token",
+    reasonCode: "replicate_key_in_client_bundle",
+    severity: "critical",
+    regex: /\br8_[A-Za-z0-9]{34}\b/g
+  },
+  {
+    provider: "HuggingFace token",
+    reasonCode: "huggingface_token_in_client_bundle",
+    severity: "critical",
+    regex: /\bhf_[A-Za-z0-9]{34}\b/g
   }
 ];
 

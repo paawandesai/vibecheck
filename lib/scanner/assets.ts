@@ -3,6 +3,7 @@ import { safeUrlForStorage } from "@/lib/scanner/redaction";
 import { safeFetch, type ScanBudget } from "@/lib/scanner/safeFetch";
 
 const SCRIPT_SRC_PATTERN = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+const MAX_SCRIPT_ASSETS = 8;
 
 export function extractScriptUrls(html: string, pageUrl: string) {
   const base = new URL(pageUrl);
@@ -21,7 +22,7 @@ export function extractScriptUrls(html: string, pageUrl: string) {
     }
   }
 
-  return [...scripts].slice(0, 6);
+  return [...scripts].slice(0, MAX_SCRIPT_ASSETS);
 }
 
 export async function collectPublicAssets(targetUrl: string, budget: ScanBudget) {
