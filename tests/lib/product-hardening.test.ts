@@ -111,6 +111,72 @@ abc123abc123abc123abc123abc123
   assert.ok(!result.findings.some((finding) => finding.reasonCode.includes("certificate")));
 });
 
+test("expanded secret patterns detect high-confidence provider and connection tokens", () => {
+  const samples = [
+    {
+      reasonCode: "github_token_in_client_bundle",
+      value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    },
+    {
+      reasonCode: "github_fine_grained_token_in_client_bundle",
+      value: "github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    },
+    {
+      reasonCode: "slack_token_in_client_bundle",
+      value: "xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwxyz"
+    },
+    {
+      reasonCode: "vercel_token_in_client_bundle",
+      value: "vercel_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"
+    },
+    {
+      reasonCode: "resend_key_in_client_bundle",
+      value: "re_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"
+    },
+    {
+      reasonCode: "postmark_token_in_client_bundle",
+      value: "postmark_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"
+    },
+    {
+      reasonCode: "webhook_secret_in_client_bundle",
+      value: "whsec_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"
+    },
+    {
+      reasonCode: "database_url_in_client_bundle",
+      value: "postgresql://user:pass@db.example.com:5432/app"
+    },
+    {
+      reasonCode: "database_url_in_client_bundle",
+      value: "mongodb+srv://user:pass@cluster.example.com/app"
+    },
+    {
+      reasonCode: "database_url_in_client_bundle",
+      value: "redis://:pass@redis.example.com:6379"
+    }
+  ];
+  const result = analyzeSecrets([
+    {
+      url: ORIGIN,
+      type: "script",
+      body: samples.map((sample) => sample.value).join("\n"),
+      truncated: false
+    }
+  ]);
+  const reasonCodes = new Set(result.findings.map((finding) => finding.reasonCode));
+
+  for (const { reasonCode } of samples) {
+    assert.ok(reasonCodes.has(reasonCode), `${reasonCode} should be detected`);
+  }
+  assert.ok(result.findings.every((finding) => finding.severity === "critical"));
+  assert.ok(result.findings.every((finding) => finding.confidence === "confirmed"));
+
+  const serialized = JSON.stringify(result.findings);
+  for (const { value } of samples) {
+    assert.ok(!serialized.includes(value), `${value} should not be stored in raw form`);
+  }
+  assert.ok(serialized.includes("[redacted]"));
+});
+
 test("Supabase deep probe reports bucket listing without storing bucket names", async () => {
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = input.toString();

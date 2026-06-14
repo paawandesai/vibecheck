@@ -24,6 +24,39 @@ export function infraExposedFetch() {
   return { calls, fetchImpl };
 }
 
+export function infraExpandedFetch() {
+  const { calls, record } = recorder();
+  const fetchImpl: typeof fetch = async (input, init) => {
+    record(input, init);
+    const url = input.toString();
+    if (url.endsWith("/.git/HEAD")) {
+      return new Response("ref: refs/heads/main\n", { status: 200 });
+    }
+    if (url.endsWith("/.svn/entries")) {
+      return new Response("12\ndir\nmain\n", { status: 200 });
+    }
+    if (url.endsWith("/.DS_Store")) {
+      return new Response("DS_STORE_BINARY_SHAPE_PLACEHOLDER", { status: 200 });
+    }
+    if (url.endsWith("/config.json")) {
+      return new Response('{"apiBase":"/api","debug":false}', { status: 200 });
+    }
+    if (url.endsWith("/firebase.json")) {
+      return new Response('{"hosting":{"public":"dist"}}', { status: 200 });
+    }
+    if (url.endsWith("/vercel.json")) {
+      return new Response('{"rewrites":[{"source":"/api/:path*","destination":"/api/:path*"}]}', {
+        status: 200
+      });
+    }
+    if (url.endsWith("/netlify.toml")) {
+      return new Response("[build]\n  publish = \"dist\"\n", { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  };
+  return { calls, fetchImpl };
+}
+
 export function infraCleanFetch() {
   const { calls, record } = recorder();
   const fetchImpl: typeof fetch = async (input, init) => {
