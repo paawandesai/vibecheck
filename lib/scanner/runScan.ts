@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
-import type { AuthorizationArtifact, Finding, ScanReport, Severity } from "@/lib/types";
+import type {
+  AuthorizationArtifact,
+  Finding,
+  PublicAsset,
+  ScanReport,
+  ScanStatus,
+  Severity,
+  SupabaseContext
+} from "@/lib/types";
 import { scanConfig } from "@/lib/env";
 import { collectPublicAssets } from "@/lib/scanner/assets";
 import { CHECK_BUDGETS, type CheckId, isCheckEnabled, parseDisabledChecks } from "@/lib/scanner/checks";
@@ -8,10 +16,11 @@ import { analyzeSecrets } from "@/lib/scanner/secrets";
 import { checkPublicApiSurface } from "@/lib/scanner/publicApi";
 import { checkSecurityHeaders } from "@/lib/scanner/securityHeaders";
 import { checkSourceMaps } from "@/lib/scanner/sourceMaps";
-import { checkSupabaseExposure } from "@/lib/scanner/supabase";
+import { checkSupabaseExposure, supabaseAnonSelfCheckFinding } from "@/lib/scanner/supabase";
 import { checkInfrastructure } from "@/lib/scanner/infra";
 import { normalizeScannerUrl, safeFetch, ScanBudget } from "@/lib/scanner/safeFetch";
 import { safeUrlForStorage } from "@/lib/scanner/redaction";
+import { classifyReport } from "@/lib/report/classification";
 
 export const AUTH_CHECKBOX_TEXT_VERSION = "supabase-ownership-v1";
 const TOTAL_REQUEST_BUDGET = 35;
@@ -66,6 +75,11 @@ export async function runScan(input: {
   const checkerBudgets: Record<string, { max: number; used: number }> = {};
   const budget = new ScanBudget(TOTAL_REQUEST_BUDGET);
   const findings: Finding[] = [];
+  let status: ScanStatus = "complete";
+  let incompleteReason: string | undefined;
+  let assets: PublicAsset[] = [];
+  let supabaseContext: SupabaseContext = { serviceRoleKeyFingerprints: [] };
+  let authorization: AuthorizationArtifact | undefined;
 
   async function runWithBudget<T>(checkId: keyof typeof CHECK_BUDGETS, fn: (scoped: ScanBudget) => Promise<T>) {
     const scoped = budget.scope(checkId, CHECK_BUDGETS[checkId]);
@@ -83,106 +97,119 @@ export async function runScan(input: {
     return isCheckEnabled(checksDisabled, checkId);
   }
 
-  const needsAssets =
-    enabled("client_bundle_secrets") ||
-    enabled("exposed_source_maps") ||
-    enabled("cors") ||
-    enabled("public_api_surface") ||
-    (input.authorizedSupabaseProbe && enabled("supabase_rls_authorized_probe"));
+  try {
+    const needsAssets =
+      enabled("client_bundle_secrets") ||
+      enabled("exposed_source_maps") ||
+      enabled("cors") ||
+      enabled("public_api_surface") ||
+      (input.authorizedSupabaseProbe && enabled("supabase_rls_authorized_probe"));
 
-  const assets = needsAssets
-    ? await runWithBudget("asset_collection", (scoped) => collectPublicAssets(target.toString(), scoped))
-    : [];
-  const { findings: secretFindings, supabaseContext } = analyzeSecrets(assets);
+    assets = needsAssets
+      ? await runWithBudget("asset_collection", (scoped) => collectPublicAssets(target.toString(), scoped))
+      : [];
+    const analysis = analyzeSecrets(assets);
+    supabaseContext = analysis.supabaseContext;
 
-  if (enabled("security_headers")) {
-    checksRun.push("security_headers");
-    const headerAsset = await runWithBudget("security_headers", async (scoped) => {
-      const response = await safeFetch(target.toString(), scoped, {
-        method: "HEAD",
-        maxBytes: 0,
-        timeoutMs: 8000
+    if (enabled("security_headers")) {
+      checksRun.push("security_headers");
+      const headerAsset = await runWithBudget("security_headers", async (scoped) => {
+        const response = await safeFetch(target.toString(), scoped, {
+          method: "HEAD",
+          maxBytes: 0,
+          timeoutMs: 8000
+        });
+        return {
+          url: safeUrlForStorage(response.url),
+          type: "html" as const,
+          body: "",
+          truncated: false,
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries())
+        };
       });
-      return {
-        url: safeUrlForStorage(response.url),
-        type: "html" as const,
-        body: "",
-        truncated: false,
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries())
+      findings.push(...checkSecurityHeaders(headerAsset, targetOrigin));
+    }
+
+    if (enabled("client_bundle_secrets")) {
+      checksRun.push("client_bundle_secrets");
+      checkerBudgets.client_bundle_secrets = {
+        max: CHECK_BUDGETS.client_bundle_secrets,
+        used: checkerBudgets.asset_collection?.used ?? 0
       };
-    });
-    findings.push(...checkSecurityHeaders(headerAsset, targetOrigin));
-  }
+      findings.push(...analysis.findings);
+    }
 
-  if (enabled("client_bundle_secrets")) {
-    checksRun.push("client_bundle_secrets");
-    checkerBudgets.client_bundle_secrets = {
-      max: CHECK_BUDGETS.client_bundle_secrets,
-      used: checkerBudgets.asset_collection?.used ?? 0
-    };
-    findings.push(...secretFindings);
-  }
-
-  if (enabled("exposed_source_maps")) {
-    checksRun.push("exposed_source_maps");
-    findings.push(
-      ...(await runWithBudget("exposed_source_maps", (scoped) => checkSourceMaps(assets, scoped)))
-    );
-  }
-
-  if (enabled("exposed_infrastructure")) {
-    checksRun.push("exposed_infrastructure");
-    findings.push(
-      ...(await runWithBudget("exposed_infrastructure", (scoped) =>
-        checkInfrastructure(targetOrigin, scoped)
-      ))
-    );
-  }
-
-  if (enabled("cors")) {
-    checksRun.push("cors");
-    findings.push(
-      ...(await runWithBudget("cors", (scoped) => checkCorsExposure(assets, targetOrigin, scoped)))
-    );
-  }
-
-  if (enabled("public_api_surface")) {
-    checksRun.push("public_api_surface");
-    findings.push(
-      ...(await runWithBudget("public_api_surface", (scoped) =>
-        checkPublicApiSurface(assets, targetOrigin, scoped)
-      ))
-    );
-  }
-
-  let authorization: AuthorizationArtifact | undefined;
-  if (
-    input.authorizedSupabaseProbe &&
-    !scanConfig.supabaseProbeDisabled &&
-    enabled("supabase_rls_authorized_probe")
-  ) {
-    checksRun.push("supabase_rls_authorized_probe");
-    authorization = {
-      scanId,
-      targetOrigin,
-      timestamp: new Date().toISOString(),
-      checkboxTextVersion: AUTH_CHECKBOX_TEXT_VERSION,
-      requesterFingerprint: requesterFingerprint(input.requester ?? {})
-    };
-    findings.push(
-      ...(await runWithBudget("supabase_rls_authorized_probe", (scoped) =>
-        checkSupabaseExposure(supabaseContext, scoped)
-      ))
-    );
-  } else {
-    if (!enabled("supabase_rls_authorized_probe")) {
-      // Disabled checks are represented in checksDisabled rather than checksSkipped.
-    } else {
-      checksSkipped.push(
-        input.authorizedSupabaseProbe ? "supabase_probe_disabled_by_operator" : "supabase_probe_requires_authorization"
+    if (enabled("exposed_source_maps")) {
+      checksRun.push("exposed_source_maps");
+      findings.push(
+        ...(await runWithBudget("exposed_source_maps", (scoped) => checkSourceMaps(assets, scoped)))
       );
     }
+
+    if (enabled("exposed_infrastructure")) {
+      checksRun.push("exposed_infrastructure");
+      findings.push(
+        ...(await runWithBudget("exposed_infrastructure", (scoped) =>
+          checkInfrastructure(targetOrigin, scoped)
+        ))
+      );
+    }
+
+    if (enabled("cors")) {
+      checksRun.push("cors");
+      findings.push(
+        ...(await runWithBudget("cors", (scoped) => checkCorsExposure(assets, targetOrigin, scoped)))
+      );
+    }
+
+    if (enabled("public_api_surface")) {
+      checksRun.push("public_api_surface");
+      findings.push(
+        ...(await runWithBudget("public_api_surface", (scoped) =>
+          checkPublicApiSurface(assets, targetOrigin, scoped)
+        ))
+      );
+    }
+
+    let authorizedSupabaseProbeRan = false;
+    if (
+      input.authorizedSupabaseProbe &&
+      !scanConfig.supabaseProbeDisabled &&
+      enabled("supabase_rls_authorized_probe")
+    ) {
+      checksRun.push("supabase_rls_authorized_probe");
+      authorizedSupabaseProbeRan = true;
+      authorization = {
+        scanId,
+        targetOrigin,
+        timestamp: new Date().toISOString(),
+        checkboxTextVersion: AUTH_CHECKBOX_TEXT_VERSION,
+        requesterFingerprint: requesterFingerprint(input.requester ?? {})
+      };
+      findings.push(
+        ...(await runWithBudget("supabase_rls_authorized_probe", (scoped) =>
+          checkSupabaseExposure(supabaseContext, scoped)
+        ))
+      );
+    } else {
+      if (!enabled("supabase_rls_authorized_probe")) {
+        // Disabled checks are represented in checksDisabled rather than checksSkipped.
+      } else {
+        checksSkipped.push(
+          input.authorizedSupabaseProbe ? "supabase_probe_disabled_by_operator" : "supabase_probe_requires_authorization"
+        );
+      }
+    }
+
+    if (!authorizedSupabaseProbeRan && enabled("client_bundle_secrets")) {
+      const selfCheck = supabaseAnonSelfCheckFinding(supabaseContext);
+      if (selfCheck) findings.push(selfCheck);
+    }
+  } catch (err) {
+    status = "incomplete";
+    incompleteReason = err instanceof Error ? err.message : "The scanner stopped before finishing.";
+    checksSkipped.push("scan_incomplete");
   }
 
   const sortedFindings = findings.sort(
@@ -190,12 +217,14 @@ export async function runScan(input: {
   );
   const score = scoreReport(sortedFindings);
   const highest = highestSeverity(sortedFindings);
+  const classification = classifyReport({ status, findings: sortedFindings, incompleteReason });
 
   const report: ScanReport = {
     id: scanId,
     targetOrigin,
     targetUrlRedacted: safeUrlForStorage(target),
     createdAt: new Date().toISOString(),
+    ...classification,
     grade: score.grade,
     score: score.score,
     scanner: {

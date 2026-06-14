@@ -1,5 +1,5 @@
 import type { Finding, PublicAsset, Severity } from "@/lib/types";
-import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
+import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint } from "@/lib/scanner/redaction";
 
 function header(asset: PublicAsset, name: string) {
@@ -15,13 +15,17 @@ function finding(
   explanation: string,
   observed: string
 ): Finding {
-  return {
+  return createFinding({
     id: `security_header_${reasonCode}_${fingerprint(targetUrl)}`,
     type: "security_header",
     title,
     severity,
     confidence: "confirmed",
     reasonCode,
+    tier: "unknown",
+    location: "response_header",
+    rlsInference: "not_applicable",
+    runbookCode: "HEADER_HARDEN",
     summary,
     explanation,
     limitation:
@@ -35,9 +39,8 @@ function finding(
         label: "Observed header",
         value: escapeEvidence(observed || "(missing)")
       }
-    ],
-    fixPrompts: fixPromptsFor("security_header")
-  };
+    ]
+  });
 }
 
 export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: string) {

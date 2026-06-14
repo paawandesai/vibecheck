@@ -1,6 +1,6 @@
 import type { Finding, PublicAsset } from "@/lib/types";
 import { discoverReferencedApiPaths } from "@/lib/scanner/apiPaths";
-import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
+import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/redaction";
 import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
@@ -34,13 +34,17 @@ export async function checkCorsExposure(
       const credentialed = allowCredentials.toLowerCase() === "true";
       if (!reflected && !wildcard) continue;
 
-      findings.push({
+      findings.push(createFinding({
         id: `cors_${fingerprint(path)}`,
         type: "cors",
         title: credentialed ? "Credentialed permissive CORS detected" : "Permissive CORS detected",
         severity: credentialed ? "high" : "medium",
         confidence: "confirmed",
         reasonCode: credentialed ? "credentialed_permissive_cors" : "permissive_cors",
+        tier: "unknown",
+        location: "referenced_api",
+        rlsInference: "not_applicable",
+        runbookCode: "CORS_TIGHTEN",
         summary: "A referenced API endpoint accepts a hostile cross-origin browser request.",
         explanation:
           "Overly broad CORS can let attacker-controlled websites read API responses from users' browsers, especially when credentials are allowed.",
@@ -56,9 +60,8 @@ export async function checkCorsExposure(
               credentialed
             }
           }
-        ],
-        fixPrompts: fixPromptsFor("cors")
-      });
+        ]
+      }));
     } catch (err) {
       if ((err as Error).message.includes("budget exceeded")) throw err;
       continue;

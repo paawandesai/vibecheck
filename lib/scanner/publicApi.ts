@@ -1,6 +1,6 @@
 import type { Finding, PublicAsset } from "@/lib/types";
 import { discoverReferencedApiPaths } from "@/lib/scanner/apiPaths";
-import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
+import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/redaction";
 import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
@@ -58,13 +58,17 @@ export async function checkPublicApiSurface(
       const shape = jsonShapeFlags(res.text);
       if (!shape?.hasSensitiveKeyShape) continue;
 
-      findings.push({
+      findings.push(createFinding({
         id: `public_api_${fingerprint(path)}`,
         type: "public_api",
         title: "Referenced API route returns sensitive-looking JSON anonymously",
         severity: "medium",
         confidence: "likely",
         reasonCode: "anonymous_public_api_sensitive_shape",
+        tier: "unknown",
+        location: "referenced_api",
+        rlsInference: "not_applicable",
+        runbookCode: "API_AUTH_REVIEW",
         summary: "A same-origin API route referenced by the app returned JSON with private-looking fields.",
         explanation:
           "API routes used by frontend apps can still require authorization or server-side filtering before returning user, token, role, or private fields.",
@@ -82,9 +86,8 @@ export async function checkPublicApiSurface(
               isArray: shape.isArray
             }
           }
-        ],
-        fixPrompts: fixPromptsFor("public_api")
-      });
+        ]
+      }));
     } catch (err) {
       if ((err as Error).message.includes("budget exceeded")) throw err;
       continue;

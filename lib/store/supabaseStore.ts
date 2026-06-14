@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { scanConfig } from "@/lib/env";
 import type { EventName, ScanReport } from "@/lib/types";
+import { normalizeReportForDisplay } from "@/lib/report/classification";
 
 const supabase =
   scanConfig.supabaseUrl && scanConfig.supabaseServiceRoleKey
@@ -50,18 +51,22 @@ export async function getReportFromSupabase(id: string) {
   if (error) throw new Error(`Could not load report: ${error.message}`);
   if (!data) return null;
 
-  return {
+  return normalizeReportForDisplay({
     id: data.id,
     targetOrigin: data.target_origin,
     targetUrlRedacted: data.target_url_redacted,
     createdAt: data.created_at,
+    status: "complete",
+    state: "clean",
+    stateReason: "legacy_report",
+    stateSummary: "This report was normalized from stored report data.",
     grade: data.grade,
     score: data.score,
     scanner: data.scanner,
     findings: data.findings,
     authorization: data.authorization_artifact ?? undefined,
     aggregate: data.aggregate
-  } satisfies ScanReport;
+  } satisfies ScanReport);
 }
 
 export async function recordEventToSupabase(name: EventName, reportId?: string) {

@@ -9,6 +9,40 @@ export type FindingType =
   | "exposed_infrastructure"
   | "public_api";
 export type Builder = "lovable" | "bolt" | "cursor" | "replit" | "supabase";
+export type ScanStatus = "complete" | "incomplete";
+export type ReportState = "clean" | "fixable" | "incident" | "incomplete";
+export type FindingTier = "critical" | "public_by_design" | "unknown" | "informational";
+export type FindingLocation =
+  | "client_bundle"
+  | "public_web_path"
+  | "referenced_api"
+  | "response_header"
+  | "supabase_rest"
+  | "supabase_storage"
+  | "public_repo_head"
+  | "public_repo_history"
+  | "private_repo"
+  | "committed_env"
+  | "unknown";
+export type RlsInference = "unverifiable" | "anon_read_possible" | "not_applicable";
+export type RunbookCode =
+  | "INFO_ONLY"
+  | "RLS_SELF_CHECK"
+  | "INCIDENT_ROTATE"
+  | "INCIDENT_ROTATE_HISTORICAL"
+  | "MANUAL_TRIAGE"
+  | "SOURCE_MAP_DISABLE"
+  | "INFRA_REMOVE"
+  | "HEADER_HARDEN"
+  | "CORS_TIGHTEN"
+  | "API_AUTH_REVIEW";
+
+export interface Remediation {
+  type: "code" | "shell" | "sql" | "config" | "dashboard_instruction";
+  snippet: string;
+  targetLocation: string;
+  beginnerContext?: string;
+}
 
 export interface EvidenceItem {
   label: string;
@@ -24,11 +58,16 @@ export interface Finding {
   severity: Severity;
   confidence: Confidence;
   reasonCode: string;
+  tier: FindingTier;
+  location: FindingLocation;
+  rlsInference: RlsInference;
+  runbookCode: RunbookCode;
   summary: string;
   explanation: string;
   limitation: string;
   evidence: EvidenceItem[];
-  fixPrompts: Record<Builder, string>;
+  remediations: Remediation[];
+  fixPrompts?: Record<Builder, string>;
 }
 
 export interface AuthorizationArtifact {
@@ -56,6 +95,11 @@ export interface ScanReport {
   targetOrigin: string;
   targetUrlRedacted: string;
   createdAt: string;
+  status: ScanStatus;
+  state: ReportState;
+  stateReason: string;
+  stateSummary: string;
+  primaryRunbookCode?: RunbookCode;
   grade: "A" | "B" | "C" | "D" | "F";
   score: number;
   scanner: ScannerMetadata;

@@ -1,5 +1,5 @@
 import type { Finding, PublicAsset } from "@/lib/types";
-import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
+import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/redaction";
 import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
@@ -70,13 +70,17 @@ export async function checkSourceMaps(
       ? "public_source_map_confirmed"
       : "public_source_map_accessible_unconfirmed_shape";
 
-    findings.push({
+    findings.push(createFinding({
       id: `source_map_${fingerprint(ref.mapUrl)}`,
       type: "source_map",
       title: "Publicly accessible source map detected",
       severity: "medium",
       confidence: confirmed ? "confirmed" : "likely",
       reasonCode,
+      tier: "unknown",
+      location: "public_web_path",
+      rlsInference: "not_applicable",
+      runbookCode: "SOURCE_MAP_DISABLE",
       summary:
         "A sourceMappingURL reference points to a publicly reachable source map file.",
       explanation:
@@ -97,9 +101,8 @@ export async function checkSourceMaps(
           label: "Referenced by",
           value: escapeEvidence(ref.assetUrl)
         }
-      ],
-      fixPrompts: fixPromptsFor("source_map")
-    });
+      ]
+    }));
   }
 
   return findings;

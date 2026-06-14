@@ -1,5 +1,5 @@
 import type { Finding, PublicAsset, Severity, SupabaseContext } from "@/lib/types";
-import { fixPromptsFor } from "@/lib/scanner/fixPrompts";
+import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint, redactSecret } from "@/lib/scanner/redaction";
 
 interface SecretPattern {
@@ -126,13 +126,17 @@ function decodeJwtPayload(token: string) {
 
 function secretFinding(provider: string, reasonCode: string, severity: Severity, value: string, asset: PublicAsset): Finding {
   const fp = fingerprint(value);
-  return {
+  return createFinding({
     id: `client_secret_${reasonCode}_${fp}`,
     type: "client_secret",
     title: `${provider} appears in a public client asset`,
     severity,
     confidence: "confirmed",
     reasonCode,
+    tier: "critical",
+    location: "client_bundle",
+    rlsInference: "not_applicable",
+    runbookCode: "INCIDENT_ROTATE",
     summary: "A high-confidence secret pattern was found in publicly served HTML or JavaScript.",
     explanation:
       "Secrets in browser-delivered code can be copied by anyone who can load the app. Rotate the key and move privileged calls behind a server-side boundary.",
@@ -148,9 +152,8 @@ function secretFinding(provider: string, reasonCode: string, severity: Severity,
         value: escapeEvidence(redactSecret(value)),
         fingerprint: fp
       }
-    ],
-    fixPrompts: fixPromptsFor("client_secret")
-  };
+    ]
+  });
 }
 
 function findAwsPairs(asset: PublicAsset) {
