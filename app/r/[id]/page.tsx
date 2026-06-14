@@ -13,7 +13,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="report-band">
-      <ReportView report={report} stripeLink={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} />
+      <ReportView report={report} />
     </main>
   );
 }

@@ -27,10 +27,10 @@ export default function HomePage() {
             </p>
           </article>
           <article>
-            <h2>Three checks only</h2>
+            <h2>Bounded deep checks</h2>
             <p>
-              Client bundle secrets, exposed source maps, and gated Supabase anonymous-read risk.
-              Conservative findings beat noisy claims.
+              Client bundle secrets, source maps, exposed infrastructure, security headers, CORS,
+              referenced APIs, and gated Supabase risk. Bounded checks beat noisy claims.
             </p>
           </article>
           <article>

@@ -51,6 +51,60 @@ const SECRET_PATTERNS: SecretPattern[] = [
     reasonCode: "huggingface_token_in_client_bundle",
     severity: "critical",
     regex: /\bhf_[A-Za-z0-9]{34}\b/g
+  },
+  {
+    provider: "GitHub token",
+    reasonCode: "github_token_in_client_bundle",
+    severity: "critical",
+    regex: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{30,}\b/g
+  },
+  {
+    provider: "GitHub fine-grained token",
+    reasonCode: "github_fine_grained_token_in_client_bundle",
+    severity: "critical",
+    regex: /\bgithub_pat_[A-Za-z0-9_]{30,}\b/g
+  },
+  {
+    provider: "Slack token",
+    reasonCode: "slack_token_in_client_bundle",
+    severity: "critical",
+    regex: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g
+  },
+  {
+    provider: "Vercel token",
+    reasonCode: "vercel_token_in_client_bundle",
+    severity: "critical",
+    regex: /\bvercel_[A-Za-z0-9]{24,}\b/g
+  },
+  {
+    provider: "Resend API key",
+    reasonCode: "resend_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bre_[A-Za-z0-9]{20,}\b/g
+  },
+  {
+    provider: "Postmark token",
+    reasonCode: "postmark_token_in_client_bundle",
+    severity: "critical",
+    regex: /\bpostmark_[A-Za-z0-9]{20,}\b/g
+  },
+  {
+    provider: "Webhook signing secret",
+    reasonCode: "webhook_secret_in_client_bundle",
+    severity: "critical",
+    regex: /\bwhsec_[A-Za-z0-9]{20,}\b/g
+  },
+  {
+    provider: "Database connection URL",
+    reasonCode: "database_url_in_client_bundle",
+    severity: "critical",
+    regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s"'<>`]+@[^\s"'<>`]+/gi
+  },
+  {
+    provider: "Private key block",
+    reasonCode: "private_key_block_in_client_bundle",
+    severity: "critical",
+    regex: /-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH) )?PRIVATE KEY-----[\s\S]{20,}?-----END (?:(?:RSA|EC|DSA|OPENSSH) )?PRIVATE KEY-----/g
   }
 ];
 

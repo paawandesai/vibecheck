@@ -11,7 +11,7 @@ const severityClass: Record<Severity, string> = {
   info: "severity-info"
 };
 
-async function record(name: "share_clicked" | "stripe_clicked", reportId: string) {
+async function record(name: "share_clicked", reportId: string) {
   await fetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -19,7 +19,7 @@ async function record(name: "share_clicked" | "stripe_clicked", reportId: string
   }).catch(() => undefined);
 }
 
-export function ReportView({ report, stripeLink }: { report: ScanReport; stripeLink?: string }) {
+export function ReportView({ report }: { report: ScanReport }) {
   async function copyShareLink() {
     await navigator.clipboard.writeText(window.location.href);
     await record("share_clicked", report.id);
@@ -50,12 +50,32 @@ export function ReportView({ report, stripeLink }: { report: ScanReport; stripeL
         </div>
         <div className="metric">
           <span>Requests</span>
-          <strong>{report.scanner.requestCount}</strong>
+          <strong>
+            {report.scanner.requestCount}
+            {report.scanner.requestBudget ? `/${report.scanner.requestBudget}` : ""}
+          </strong>
         </div>
         <div className="metric">
           <span>Created</span>
           <strong>{new Date(report.createdAt).toLocaleString()}</strong>
         </div>
+      </section>
+
+      <section className="empty-state" aria-label="Checks run">
+        <strong>Checks run</strong>
+        <p>{report.scanner.checksRun.join(", ") || "None"}</p>
+        {report.scanner.checksSkipped.length > 0 ? (
+          <>
+            <strong>Checks skipped</strong>
+            <p>{report.scanner.checksSkipped.join(", ")}</p>
+          </>
+        ) : null}
+        {report.scanner.checksDisabled?.length > 0 ? (
+          <>
+            <strong>Checks disabled</strong>
+            <p>{report.scanner.checksDisabled.join(", ")}</p>
+          </>
+        ) : null}
       </section>
 
       <section className="empty-state">
@@ -72,8 +92,12 @@ export function ReportView({ report, stripeLink }: { report: ScanReport; stripeL
           <article className="finding-card">
             <h2>No findings from the v1 checks</h2>
             <p>
-              The locked MVP checks did not find client-bundle secrets, publicly accessible source
-              maps, or authorized Supabase anonymous-read risk.
+              The enabled checks did not find client-bundle secrets, publicly accessible source
+              maps, exposed infrastructure, unsafe CORS, public API shape risk, weak security
+              headers, or authorized Supabase anonymous-read risk.
+              {report.scanner.checksSkipped.length > 0
+                ? ` Skipped checks: ${report.scanner.checksSkipped.join(", ")}.`
+                : ""}
             </p>
           </article>
         ) : (
@@ -128,15 +152,6 @@ export function ReportView({ report, stripeLink }: { report: ScanReport; stripeL
           <button className="secondary-button" type="button" onClick={copyShareLink}>
             Copy share link
           </button>
-          {stripeLink ? (
-            <a
-              className="secondary-button"
-              href={stripeLink}
-              onClick={() => void record("stripe_clicked", report.id)}
-            >
-              Founding member
-            </a>
-          ) : null}
         </div>
       </section>
     </div>

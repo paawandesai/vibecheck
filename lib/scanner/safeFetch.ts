@@ -11,7 +11,7 @@ export interface SafeFetchResult {
 }
 
 export interface SafeFetchOptions {
-  method?: "GET" | "HEAD";
+  method?: "GET" | "HEAD" | "OPTIONS";
   headers?: HeadersInit;
   timeoutMs?: number;
   maxBytes?: number;
@@ -24,17 +24,30 @@ export interface SafeFetchOptions {
 export class ScanBudget {
   private used = 0;
 
-  constructor(private readonly maxRequests: number) {}
+  constructor(
+    private readonly maxRequests: number,
+    private readonly label = "scan",
+    private readonly parent?: ScanBudget
+  ) {}
 
   take() {
-    this.used += 1;
-    if (this.used > this.maxRequests) {
-      throw new Error("Scan request budget exceeded");
+    if (this.used + 1 > this.maxRequests) {
+      throw new Error(`${this.label} request budget exceeded`);
     }
+    this.parent?.take();
+    this.used += 1;
   }
 
   count() {
     return this.used;
+  }
+
+  limit() {
+    return this.maxRequests;
+  }
+
+  scope(label: string, maxRequests: number) {
+    return new ScanBudget(maxRequests, label, this);
   }
 }
 

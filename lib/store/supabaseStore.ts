@@ -77,6 +77,7 @@ export async function recordEventToSupabase(name: EventName, reportId?: string) 
 }
 
 export async function saveWaitlistEntryToSupabase(entry: {
+  email: string;
   emailHash: string;
   reportId?: string;
   createdAt: string;
@@ -84,6 +85,7 @@ export async function saveWaitlistEntryToSupabase(entry: {
   if (!supabase) return false;
 
   const { error } = await supabase.from("waitlist_entries").insert({
+    email: entry.email,
     email_hash: entry.emailHash,
     report_id: entry.reportId ?? null,
     created_at: entry.createdAt
@@ -91,4 +93,39 @@ export async function saveWaitlistEntryToSupabase(entry: {
 
   if (error) throw new Error(`Could not save waitlist entry: ${error.message}`);
   return true;
+}
+
+export async function deleteWaitlistEntryFromSupabase(emailHash: string) {
+  if (!supabase) return false;
+
+  const { error } = await supabase.from("waitlist_entries").delete().eq("email_hash", emailHash);
+
+  if (error) throw new Error(`Could not delete waitlist entry: ${error.message}`);
+  return true;
+}
+
+export async function rateLimitCountSince(scope: string, key: string, since: Date) {
+  if (!supabase) throw new Error("Supabase rate limit storage is not configured");
+
+  const { count, error } = await supabase
+    .from("rate_limit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("scope", scope)
+    .eq("key", key)
+    .gte("created_at", since.toISOString());
+
+  if (error) throw new Error(`Could not read rate limit events: ${error.message}`);
+  return count ?? 0;
+}
+
+export async function recordRateLimitHit(scope: string, key: string, now: Date) {
+  if (!supabase) throw new Error("Supabase rate limit storage is not configured");
+
+  const { error } = await supabase.from("rate_limit_events").insert({
+    scope,
+    key,
+    created_at: now.toISOString()
+  });
+
+  if (error) throw new Error(`Could not record rate limit event: ${error.message}`);
 }

@@ -14,7 +14,7 @@ export default function ResponsibleUsePage() {
         <ul>
           <li>Scan your own deployed app.</li>
           <li>Scan an app when the owner has explicitly asked you to do so.</li>
-          <li>Use the gated Supabase check only when you own the target or have authorization.</li>
+          <li>Use gated Supabase and deeper API/CORS probes only when you own the target or have authorization.</li>
         </ul>
 
         <h2>Not allowed</h2>
@@ -27,7 +27,7 @@ export default function ResponsibleUsePage() {
         <h2>Contact</h2>
         <p>
           For removal requests, security concerns, or responsible disclosure coordination, contact
-          the project owner through the public repository or hackathon profile.
+          <a href="mailto:paawandesai.dev@gmail.com">paawandesai.dev@gmail.com</a>.
         </p>
       </article>
     </main>

@@ -8,6 +8,8 @@ VibeCheck performs limited, read-only checks against public app surfaces:
 
 - Client bundle secret exposure.
 - Public source map exposure.
+- Exposed infrastructure file checks.
+- Browser security headers, CORS, and referenced public API shape checks.
 - Gated Supabase anonymous-read/RLS risk checks, only after explicit authorization.
 
 VibeCheck does **not** exploit, mutate, brute force, bypass auth, write to target databases, or store sensitive target content. Reports store redacted findings, fingerprints, metadata, confidence labels, and aggregate-safe outcomes only.
@@ -50,8 +52,9 @@ Copy `.env.example` to `.env.local` and set:
 
 - `SCANNING_DISABLED=true` to disable all scanning.
 - `SUPABASE_PROBE_DISABLED=true` to disable only the gated Supabase probe.
+- `DISABLED_CHECKS=security_headers,cors` to disable individual checks during rollout.
 - `AUTH_FINGERPRINT_SALT` to a private random value before collecting real authorization artifacts.
 
 ## MVP Data Store
 
-This scaffold uses an in-memory report store so the app runs immediately. The report and authorization data contracts are isolated in `lib/store/reportStore.ts` so they can be moved to VibeCheck's own Supabase project with RLS enabled once project credentials exist.
+This scaffold uses an in-memory report store in development so the app runs immediately. Production scan rate limiting requires the Supabase store and `rate_limit_events` table so serverless deployments fail closed instead of relying on process memory.

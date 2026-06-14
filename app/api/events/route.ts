@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { EventName } from "@/lib/types";
 import { recordEvent } from "@/lib/store/reportStore";
+import { normalizeOptionalReportId } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,11 @@ export async function POST(request: Request) {
   if (!body.name || !allowedEvents.includes(body.name)) {
     return NextResponse.json({ error: "Unsupported event." }, { status: 400 });
   }
-  await recordEvent(body.name, body.reportId);
+  const reportId = normalizeOptionalReportId(body.reportId);
+  if (!reportId.ok) {
+    return NextResponse.json({ error: reportId.error }, { status: 400 });
+  }
+
+  await recordEvent(body.name, reportId.reportId);
   return NextResponse.json({ ok: true });
 }

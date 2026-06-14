@@ -1,6 +1,13 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 export type Confidence = "confirmed" | "likely" | "informational" | "not_applicable";
-export type FindingType = "client_secret" | "source_map" | "supabase_rls";
+export type FindingType =
+  | "client_secret"
+  | "source_map"
+  | "supabase_rls"
+  | "security_header"
+  | "cors"
+  | "exposed_infrastructure"
+  | "public_api";
 export type Builder = "lovable" | "bolt" | "cursor" | "replit" | "supabase";
 
 export interface EvidenceItem {
@@ -36,8 +43,12 @@ export interface ScannerMetadata {
   version: string;
   mode: "read_only";
   requestCount: number;
+  requestBudget: number;
   checksRun: string[];
   checksSkipped: string[];
+  checksDisabled: string[];
+  unknownDisabledChecks: string[];
+  checkerBudgets: Record<string, { max: number; used: number }>;
 }
 
 export interface ScanReport {
@@ -54,6 +65,10 @@ export interface ScanReport {
     hasClientSecretFinding: boolean;
     hasSourceMapFinding: boolean;
     hasSupabaseRiskFinding: boolean;
+    hasInfrastructureFinding: boolean;
+    hasCorsFinding: boolean;
+    hasSecurityHeaderFinding: boolean;
+    hasPublicApiFinding: boolean;
     findingCount: number;
     highestSeverity: Severity | "none";
   };
@@ -72,6 +87,8 @@ export interface PublicAsset {
   type: "html" | "script" | "source_map";
   body: string;
   truncated: boolean;
+  status?: number;
+  headers?: Record<string, string>;
 }
 
 export interface SupabaseContext {

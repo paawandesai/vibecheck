@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { recordEvent, saveReport } from "@/lib/store/reportStore";
 import { runScan } from "@/lib/scanner/runScan";
 import { scanConfig } from "@/lib/env";
+import { normalizeScannerUrl } from "@/lib/scanner/safeFetch";
+import { requesterFingerprint } from "@/lib/scanner/runScan";
+import { consumeScanRateLimit } from "@/lib/store/rateLimitStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,13 +32,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A deployed app URL is required." }, { status: 400 });
   }
 
-  await recordEvent("scan_started");
-
   try {
+    const target = normalizeScannerUrl(body.url);
+    const requester = requesterFrom(request);
+    const fingerprint = requesterFingerprint(requester);
+    let rateLimit;
+    try {
+      rateLimit = await consumeScanRateLimit({
+        requesterFingerprint: fingerprint,
+        targetOrigin: target.origin
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Rate limiting is not configured correctly." },
+        { status: 503 }
+      );
+    }
+
+    if (!rateLimit.allowed) {
+      const response = NextResponse.json(
+        { error: rateLimit.reason ?? "Rate limit exceeded." },
+        { status: rateLimit.reason?.includes("requires Supabase") ? 503 : 429 }
+      );
+      if (rateLimit.retryAfterSeconds) {
+        response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
+      }
+      return response;
+    }
+
+    await recordEvent("scan_started");
+
     const report = await runScan({
-      targetUrl: body.url,
+      targetUrl: target.toString(),
       authorizedSupabaseProbe: body.authorizedSupabaseProbe === true,
-      requester: requesterFrom(request)
+      requester
     });
     await saveReport(report);
     await recordEvent("scan_completed", report.id);

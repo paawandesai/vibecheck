@@ -115,5 +115,53 @@ export async function checkSupabaseExposure(
     }
   }
 
+  const storageUrl = `${context.url}/storage/v1/bucket`;
+  const storage = await safeFetch(storageUrl, budget, {
+    method: "GET",
+    headers: supabaseHeaders(context.anonKey),
+    maxBytes: 80_000,
+    allowTruncate: true,
+    timeoutMs: 9000,
+    ...safeFetchOptions
+  });
+
+  if (storage.ok) {
+    let bucketCount = 0;
+    try {
+      const parsed = JSON.parse(storage.text) as unknown;
+      bucketCount = Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      bucketCount = 0;
+    }
+
+    if (bucketCount > 0) {
+      findings.push({
+        id: `supabase_storage_${fingerprint(storageUrl)}`,
+        type: "supabase_rls",
+        title: "Supabase storage buckets appear listable with anon key",
+        severity: "medium",
+        confidence: "likely",
+        reasonCode: "supabase_storage_buckets_listable",
+        summary:
+          "The Supabase Storage bucket listing endpoint responded to the public anonymous key.",
+        explanation:
+          "Public bucket metadata can reveal storage structure. Review bucket policies and keep private objects behind least-privilege access.",
+        limitation:
+          "VibeCheck did not list object contents or download files. It stored only endpoint metadata and a bucket count.",
+        evidence: [
+          {
+            label: "Read-only storage probe",
+            value: escapeEvidence("GET /storage/v1/bucket returned 200"),
+            fingerprint: fingerprint(storageUrl),
+            metadata: {
+              bucketCount
+            }
+          }
+        ],
+        fixPrompts: fixPromptsFor("supabase_rls")
+      });
+    }
+  }
+
   return findings;
 }

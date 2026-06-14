@@ -11,6 +11,7 @@ This is the shortest path to a submit-ready deployment on Vercel with persistent
    - `reports`
    - `events`
    - `waitlist_entries`
+   - `rate_limit_events`
 
 The app uses the Supabase service-role key from server routes only. Do not expose it in browser code.
 
@@ -21,15 +22,19 @@ Set these in Vercel for Production, Preview, and Development:
 ```bash
 SCANNING_DISABLED=false
 SUPABASE_PROBE_DISABLED=false
+DISABLED_CHECKS=
 AUTH_FINGERPRINT_SALT=<random-long-string>
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
 NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>
 NEXT_PUBLIC_STRIPE_PAYMENT_LINK=
+NEXT_PUBLIC_PENDO_API_KEY=
 ```
 
 Keep `SUPABASE_SERVICE_ROLE_KEY` server-only. Do not create a `NEXT_PUBLIC_` copy.
+Production scan rate limiting requires the Supabase store and `rate_limit_events` table.
+Without it, scan requests fail closed instead of using in-memory counters.
 
 ## 3. Deploy On Vercel
 
@@ -47,11 +52,13 @@ If using the Vercel CLI:
 npm exec vercel link
 npm exec vercel env add SCANNING_DISABLED production
 npm exec vercel env add SUPABASE_PROBE_DISABLED production
+npm exec vercel env add DISABLED_CHECKS production
 npm exec vercel env add AUTH_FINGERPRINT_SALT production
 npm exec vercel env add NEXT_PUBLIC_SUPABASE_URL production
 npm exec vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production
 npm exec vercel env add SUPABASE_SERVICE_ROLE_KEY production
 npm exec vercel env add NEXT_PUBLIC_APP_URL production
+npm exec vercel env add NEXT_PUBLIC_PENDO_API_KEY production
 npm exec vercel deploy --prod
 ```
 
@@ -64,7 +71,8 @@ Repeat env additions for `preview` if you want preview deploys to persist report
 3. Scan a small deployed fixture app you own.
 4. Confirm `/r/[id]` loads after scan completion.
 5. In Supabase, confirm one row appears in `reports` and `scan_started` / `scan_completed` rows appear in `events`.
-6. Submit the waitlist CTA and confirm a hashed email row appears in `waitlist_entries`.
+6. Submit the waitlist CTA and confirm an email + hashed email row appears in `waitlist_entries`.
+7. Trigger scan requests until a limit is reached and confirm a `429` with `Retry-After`.
 
 ## 5. Launch Safety Switches
 
@@ -72,5 +80,6 @@ If anything behaves unexpectedly during the hackathon:
 
 - Set `SCANNING_DISABLED=true` to pause all scanning.
 - Set `SUPABASE_PROBE_DISABLED=true` to pause only the gated Supabase probe.
+- Set `DISABLED_CHECKS=security_headers,cors` or another comma-separated list to disable individual checks.
 
 Redeploy or restart after changing environment variables if Vercel does not apply them immediately.

@@ -36,6 +36,54 @@ const genericPrompts: Record<FindingType, Record<Builder, string>> = {
       "In Supabase, enable RLS for the reported table, remove broad anon select policies, and update the app to read data only through authorized flows.",
     supabase:
       "Enable RLS on the reported table, remove broad grants to anon/authenticated, add least-privilege policies, and test with the anon key before shipping."
+  },
+  security_header: {
+    lovable:
+      "Review the reported response headers, add the missing browser security headers in your hosting or app config, redeploy, and rerun the scan.",
+    bolt:
+      "Add the missing security headers to the production app config, redeploy, and confirm the response includes the reported protections.",
+    cursor:
+      "Update the app or hosting header config to add the reported security headers, then add a regression check for production responses.",
+    replit:
+      "Configure the deployed app to return the reported security headers and retest the public URL after redeploying.",
+    supabase:
+      "If Supabase Edge Functions serve this route, add the reported security headers in the function response or gateway config."
+  },
+  cors: {
+    lovable:
+      "Tighten the reported CORS policy so it only allows trusted origins and never combines wildcard or reflected origins with credentials.",
+    bolt:
+      "Restrict CORS on the reported endpoint to explicit trusted origins, redeploy, and verify hostile origins are rejected.",
+    cursor:
+      "Update the CORS middleware for the reported endpoint, add tests for hostile Origin headers, and confirm credentials are not exposed cross-origin.",
+    replit:
+      "Change the reported route's CORS settings to a least-privilege origin allowlist and retest with a hostile Origin header.",
+    supabase:
+      "Review Supabase/API gateway CORS settings and restrict browser access to the origins your app actually controls."
+  },
+  exposed_infrastructure: {
+    lovable:
+      "Remove the exposed infrastructure file from public routes, redeploy, and verify the path returns 404 or is blocked.",
+    bolt:
+      "Audit public/static files and route handlers, remove the exposed infrastructure artifact, redeploy, and retest the reported path.",
+    cursor:
+      "Search for the exposed infrastructure path, remove it from public assets or route handlers, and add a deployment check that blocks it.",
+    replit:
+      "Remove the exposed file from public hosting, keep secrets in environment storage, and confirm the public path is no longer reachable.",
+    supabase:
+      "If this is hosted through Supabase or an edge route, remove the exposed config/source artifact and keep privileged values server-only."
+  },
+  public_api: {
+    lovable:
+      "Review the reported public API route, require authorization for private data, and avoid returning sensitive JSON shapes to anonymous users.",
+    bolt:
+      "Lock down the reported API endpoint with auth or server-side filtering, redeploy, and verify anonymous GET requests no longer expose private shapes.",
+    cursor:
+      "Add authorization checks to the reported API route, redact private fields, and include an anonymous-request regression test.",
+    replit:
+      "Move private data access behind authenticated server logic and confirm anonymous requests to the reported API path are blocked or sanitized.",
+    supabase:
+      "If this API reads Supabase data, enforce RLS and least-privilege server routes before returning data to browsers."
   }
 };
 

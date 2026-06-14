@@ -1,12 +1,14 @@
 import type { EventName, ScanReport } from "@/lib/types";
 import {
   getReportFromSupabase,
+  deleteWaitlistEntryFromSupabase,
   recordEventToSupabase,
   saveReportToSupabase,
   saveWaitlistEntryToSupabase
 } from "@/lib/store/supabaseStore";
 
 interface WaitlistEntry {
+  email: string;
   emailHash: string;
   reportId?: string;
   createdAt: string;
@@ -46,6 +48,13 @@ export async function recordEvent(name: EventName, reportId?: string) {
 export async function saveWaitlistEntry(entry: WaitlistEntry) {
   if (await saveWaitlistEntryToSupabase(entry)) return;
   waitlist.push(entry);
+}
+
+export async function deleteWaitlistEntry(emailHash: string) {
+  if (await deleteWaitlistEntryFromSupabase(emailHash)) return;
+  for (let index = waitlist.length - 1; index >= 0; index -= 1) {
+    if (waitlist[index].emailHash === emailHash) waitlist.splice(index, 1);
+  }
 }
 
 export function getAggregateSnapshot() {

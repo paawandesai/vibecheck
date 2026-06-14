@@ -2,14 +2,19 @@ import crypto from "node:crypto";
 import type { AuthorizationArtifact, Finding, ScanReport, Severity } from "@/lib/types";
 import { scanConfig } from "@/lib/env";
 import { collectPublicAssets } from "@/lib/scanner/assets";
+import { CHECK_BUDGETS, type CheckId, isCheckEnabled, parseDisabledChecks } from "@/lib/scanner/checks";
+import { checkCorsExposure } from "@/lib/scanner/cors";
 import { analyzeSecrets } from "@/lib/scanner/secrets";
+import { checkPublicApiSurface } from "@/lib/scanner/publicApi";
+import { checkSecurityHeaders } from "@/lib/scanner/securityHeaders";
 import { checkSourceMaps } from "@/lib/scanner/sourceMaps";
 import { checkSupabaseExposure } from "@/lib/scanner/supabase";
 import { checkInfrastructure } from "@/lib/scanner/infra";
-import { normalizeScannerUrl, ScanBudget } from "@/lib/scanner/safeFetch";
+import { normalizeScannerUrl, safeFetch, ScanBudget } from "@/lib/scanner/safeFetch";
 import { safeUrlForStorage } from "@/lib/scanner/redaction";
 
 export const AUTH_CHECKBOX_TEXT_VERSION = "supabase-ownership-v1";
+const TOTAL_REQUEST_BUDGET = 35;
 
 const severityRank: Record<Severity, number> = {
   critical: 5,
@@ -54,18 +59,109 @@ export async function runScan(input: {
   const scanId = crypto.randomUUID();
   const target = normalizeScannerUrl(input.targetUrl);
   const targetOrigin = target.origin;
-  const checksRun = ["client_bundle_secrets", "exposed_source_maps", "exposed_infrastructure"];
+  const disabled = parseDisabledChecks(scanConfig.disabledChecks);
+  const checksRun: string[] = [];
   const checksSkipped: string[] = [];
-  const budget = new ScanBudget(24);
+  const checksDisabled = disabled.disabled;
+  const checkerBudgets: Record<string, { max: number; used: number }> = {};
+  const budget = new ScanBudget(TOTAL_REQUEST_BUDGET);
+  const findings: Finding[] = [];
 
-  const assets = await collectPublicAssets(target.toString(), budget);
+  async function runWithBudget<T>(checkId: keyof typeof CHECK_BUDGETS, fn: (scoped: ScanBudget) => Promise<T>) {
+    const scoped = budget.scope(checkId, CHECK_BUDGETS[checkId]);
+    try {
+      return await fn(scoped);
+    } finally {
+      checkerBudgets[checkId] = {
+        max: CHECK_BUDGETS[checkId],
+        used: scoped.count()
+      };
+    }
+  }
+
+  function enabled(checkId: CheckId) {
+    return isCheckEnabled(checksDisabled, checkId);
+  }
+
+  const needsAssets =
+    enabled("client_bundle_secrets") ||
+    enabled("exposed_source_maps") ||
+    enabled("cors") ||
+    enabled("public_api_surface") ||
+    (input.authorizedSupabaseProbe && enabled("supabase_rls_authorized_probe"));
+
+  const assets = needsAssets
+    ? await runWithBudget("asset_collection", (scoped) => collectPublicAssets(target.toString(), scoped))
+    : [];
   const { findings: secretFindings, supabaseContext } = analyzeSecrets(assets);
-  const sourceMapFindings = await checkSourceMaps(assets, budget);
-  const infraFindings = await checkInfrastructure(targetOrigin, budget);
+
+  if (enabled("security_headers")) {
+    checksRun.push("security_headers");
+    const headerAsset = await runWithBudget("security_headers", async (scoped) => {
+      const response = await safeFetch(target.toString(), scoped, {
+        method: "HEAD",
+        maxBytes: 0,
+        timeoutMs: 8000
+      });
+      return {
+        url: safeUrlForStorage(response.url),
+        type: "html" as const,
+        body: "",
+        truncated: false,
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries())
+      };
+    });
+    findings.push(...checkSecurityHeaders(headerAsset, targetOrigin));
+  }
+
+  if (enabled("client_bundle_secrets")) {
+    checksRun.push("client_bundle_secrets");
+    checkerBudgets.client_bundle_secrets = {
+      max: CHECK_BUDGETS.client_bundle_secrets,
+      used: checkerBudgets.asset_collection?.used ?? 0
+    };
+    findings.push(...secretFindings);
+  }
+
+  if (enabled("exposed_source_maps")) {
+    checksRun.push("exposed_source_maps");
+    findings.push(
+      ...(await runWithBudget("exposed_source_maps", (scoped) => checkSourceMaps(assets, scoped)))
+    );
+  }
+
+  if (enabled("exposed_infrastructure")) {
+    checksRun.push("exposed_infrastructure");
+    findings.push(
+      ...(await runWithBudget("exposed_infrastructure", (scoped) =>
+        checkInfrastructure(targetOrigin, scoped)
+      ))
+    );
+  }
+
+  if (enabled("cors")) {
+    checksRun.push("cors");
+    findings.push(
+      ...(await runWithBudget("cors", (scoped) => checkCorsExposure(assets, targetOrigin, scoped)))
+    );
+  }
+
+  if (enabled("public_api_surface")) {
+    checksRun.push("public_api_surface");
+    findings.push(
+      ...(await runWithBudget("public_api_surface", (scoped) =>
+        checkPublicApiSurface(assets, targetOrigin, scoped)
+      ))
+    );
+  }
 
   let authorization: AuthorizationArtifact | undefined;
-  let supabaseFindings: Finding[] = [];
-  if (input.authorizedSupabaseProbe && !scanConfig.supabaseProbeDisabled) {
+  if (
+    input.authorizedSupabaseProbe &&
+    !scanConfig.supabaseProbeDisabled &&
+    enabled("supabase_rls_authorized_probe")
+  ) {
     checksRun.push("supabase_rls_authorized_probe");
     authorization = {
       scanId,
@@ -74,18 +170,26 @@ export async function runScan(input: {
       checkboxTextVersion: AUTH_CHECKBOX_TEXT_VERSION,
       requesterFingerprint: requesterFingerprint(input.requester ?? {})
     };
-    supabaseFindings = await checkSupabaseExposure(supabaseContext, budget);
-  } else {
-    checksSkipped.push(
-      input.authorizedSupabaseProbe ? "supabase_probe_disabled_by_operator" : "supabase_probe_requires_authorization"
+    findings.push(
+      ...(await runWithBudget("supabase_rls_authorized_probe", (scoped) =>
+        checkSupabaseExposure(supabaseContext, scoped)
+      ))
     );
+  } else {
+    if (!enabled("supabase_rls_authorized_probe")) {
+      // Disabled checks are represented in checksDisabled rather than checksSkipped.
+    } else {
+      checksSkipped.push(
+        input.authorizedSupabaseProbe ? "supabase_probe_disabled_by_operator" : "supabase_probe_requires_authorization"
+      );
+    }
   }
 
-  const findings = [...secretFindings, ...sourceMapFindings, ...supabaseFindings, ...infraFindings].sort(
+  const sortedFindings = findings.sort(
     (a, b) => severityRank[b.severity] - severityRank[a.severity]
   );
-  const score = scoreReport(findings);
-  const highest = highestSeverity(findings);
+  const score = scoreReport(sortedFindings);
+  const highest = highestSeverity(sortedFindings);
 
   const report: ScanReport = {
     id: scanId,
@@ -98,16 +202,24 @@ export async function runScan(input: {
       version: "0.1.0",
       mode: "read_only",
       requestCount: budget.count(),
+      requestBudget: TOTAL_REQUEST_BUDGET,
       checksRun,
-      checksSkipped
+      checksSkipped,
+      checksDisabled,
+      unknownDisabledChecks: disabled.unknown,
+      checkerBudgets
     },
-    findings,
+    findings: sortedFindings,
     authorization,
     aggregate: {
-      hasClientSecretFinding: findings.some((finding) => finding.type === "client_secret"),
-      hasSourceMapFinding: findings.some((finding) => finding.type === "source_map"),
-      hasSupabaseRiskFinding: findings.some((finding) => finding.type === "supabase_rls"),
-      findingCount: findings.length,
+      hasClientSecretFinding: sortedFindings.some((finding) => finding.type === "client_secret"),
+      hasSourceMapFinding: sortedFindings.some((finding) => finding.type === "source_map"),
+      hasSupabaseRiskFinding: sortedFindings.some((finding) => finding.type === "supabase_rls"),
+      hasInfrastructureFinding: sortedFindings.some((finding) => finding.type === "exposed_infrastructure"),
+      hasCorsFinding: sortedFindings.some((finding) => finding.type === "cors"),
+      hasSecurityHeaderFinding: sortedFindings.some((finding) => finding.type === "security_header"),
+      hasPublicApiFinding: sortedFindings.some((finding) => finding.type === "public_api"),
+      findingCount: sortedFindings.length,
       highestSeverity: highest
     }
   };

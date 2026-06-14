@@ -59,7 +59,7 @@ export async function checkSourceMaps(
         ...safeFetchOptions
       });
     } catch (err) {
-      if ((err as Error).message === "Scan request budget exceeded") throw err;
+      if ((err as Error).message.includes("budget exceeded")) throw err;
       continue;
     }
 

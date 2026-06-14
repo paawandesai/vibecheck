@@ -5,6 +5,10 @@ import { safeFetch, type ScanBudget } from "@/lib/scanner/safeFetch";
 const SCRIPT_SRC_PATTERN = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
 const MAX_SCRIPT_ASSETS = 8;
 
+function headersToRecord(headers: Headers) {
+  return Object.fromEntries(headers.entries());
+}
+
 export function extractScriptUrls(html: string, pageUrl: string) {
   const base = new URL(pageUrl);
   const scripts = new Set<string>();
@@ -36,7 +40,9 @@ export async function collectPublicAssets(targetUrl: string, budget: ScanBudget)
       url: safeUrlForStorage(page.url),
       type: "html",
       body: page.text,
-      truncated: page.truncated
+      truncated: page.truncated,
+      status: page.status,
+      headers: headersToRecord(page.headers)
     }
   ];
 
@@ -51,7 +57,9 @@ export async function collectPublicAssets(targetUrl: string, budget: ScanBudget)
       url: safeUrlForStorage(script.url),
       type: "script",
       body: script.text,
-      truncated: script.truncated
+      truncated: script.truncated,
+      status: script.status,
+      headers: headersToRecord(script.headers)
     });
   }
 

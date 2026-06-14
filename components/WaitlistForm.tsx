@@ -29,6 +29,9 @@ export function WaitlistForm({ reportId }: { reportId: string }) {
       <button className="primary-button" type="submit" disabled={status === "saving"}>
         {status === "saving" ? "Saving..." : "Reserve access"}
       </button>
+      <p className="scan-note">
+        We store your email so we can contact you about deploy-time rescans and deletion requests.
+      </p>
       {status === "saved" ? <p className="form-success">You're on the list.</p> : null}
       {status === "error" ? <p className="form-error">Could not save that email.</p> : null}
     </form>
