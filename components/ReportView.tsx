@@ -28,6 +28,31 @@ async function record(name: "share_clicked", reportId: string) {
 }
 
 function checkedCopy(report: ScanReport) {
+  const statuses = Object.entries(report.scanner.checkStatuses ?? {});
+  if (statuses.length) {
+    const formatStatus = ([checkId, item]: (typeof statuses)[number]) => {
+      const budget =
+        typeof item.maxRequests === "number"
+          ? ` (${item.requestsUsed}/${item.maxRequests} requests)`
+          : item.requestsUsed
+            ? ` (${item.requestsUsed} requests)`
+            : "";
+      const reason = item.reason ? `: ${item.reason}` : "";
+      return `${checkId} ${item.status}${budget}${reason}`;
+    };
+    const completed = statuses.filter(([, item]) => item.status === "completed").map(formatStatus);
+    const notSeen = statuses
+      .filter(([, item]) => item.status === "skipped" || item.status === "disabled" || item.status === "incomplete")
+      .map(formatStatus);
+
+    return {
+      checked: completed.length ? completed.join(", ") : "No checks completed",
+      couldNotSee: notSeen.length
+        ? notSeen.join(", ")
+        : "Authenticated areas, private repositories, server-only logs, and any disabled checks."
+    };
+  }
+
   const skipped = [
     ...(report.scanner.checksSkipped ?? []),
     ...(report.scanner.checksDisabled ?? []).map((check) => `${check} disabled`)
@@ -65,7 +90,7 @@ function RemediationBlock({
           Copy fix
         </button>
       </div>
-      {remediation.beginnerContext ? <p>{remediation.beginnerContext}</p> : null}
+      <p>{remediation.beginnerContext}</p>
       <pre><code>{remediation.snippet}</code></pre>
     </div>
   );
@@ -96,12 +121,16 @@ function IncidentRunbook({
   onCopy: (snippet: string) => void;
 }) {
   const primary = findings[0];
+  const isAssessment = (item: Remediation) =>
+    item.targetLocation.toLowerCase().includes("logs") ||
+    item.snippet.includes("auth.audit_log_entries");
   const stopBleeding = primary.remediations.filter(
-    (item) => item.type === "shell" || item.type === "dashboard_instruction"
+    (item) =>
+      (item.type === "shell" || item.type === "dashboard_instruction") && !isAssessment(item)
   );
-  const assess = primary.remediations.filter((item) => item.type === "sql");
+  const assess = primary.remediations.filter(isAssessment);
   const remediate = primary.remediations.filter(
-    (item) => item.type === "config" || item.type === "code"
+    (item) => item.type === "config" || item.type === "code" || (item.type === "sql" && !isAssessment(item))
   );
 
   return (
@@ -116,7 +145,10 @@ function IncidentRunbook({
       <ol className="runbook-steps">
         <li>
           <h3>Stop the bleeding</h3>
-          <p>Find where the key or exposure is used before deleting anything, then rotate it safely.</p>
+          <p>
+            If active abuse is suspected, rotate or revoke immediately even if downtime happens.
+            Otherwise, locate usage first so you can rotate safely.
+          </p>
           {stopBleeding.map((remediation, index) => (
             <RemediationBlock
               key={`${primary.id}-stop-${index}`}
@@ -230,7 +262,7 @@ export function ReportView({ report }: { report: ScanReport }) {
         </div>
         <div className={`state-badge state-${normalized.state}`} aria-label={`Report state ${stateLabel[normalized.state]}`}>
           <strong>{stateLabel[normalized.state]}</strong>
-          <span>{normalized.grade} · {normalized.score}/100</span>
+          <span>Hygiene score {normalized.grade} · {normalized.score}/100</span>
         </div>
       </div>
 
@@ -238,6 +270,10 @@ export function ReportView({ report }: { report: ScanReport }) {
         <p className="eyebrow">State summary</p>
         <h2>{normalized.stateSummary}</h2>
         <p>{normalized.stateReason}</p>
+        <p>
+          State reflects the most urgent routed finding. Hygiene score is the aggregate of enabled
+          checks.
+        </p>
       </section>
 
       <section className="meta-grid" aria-label="Report metadata">
@@ -265,9 +301,11 @@ export function ReportView({ report }: { report: ScanReport }) {
       <section className="empty-state">
         <strong>What this scan does and does not do</strong>
         <p>
-          VibeCheck performs limited, read-only checks against public app surfaces. It does not
-          exploit, mutate, brute force, bypass auth, write to databases, or store sensitive target
-          content.
+          VibeCheck checks public pages, client bundles, source-map references, exposed
+          infrastructure paths, browser security headers, bounded CORS preflights on referenced API
+          routes, public API response-shape metadata, and owner-authorized Supabase read/storage
+          probes. It does not exploit, mutate, brute force, bypass auth, write to databases, or store
+          sensitive target content.
         </p>
       </section>
 
@@ -300,6 +338,10 @@ export function ReportView({ report }: { report: ScanReport }) {
           <details open>
             <summary>What completed before stopping</summary>
             <p>{checks.checked}</p>
+          </details>
+          <details>
+            <summary>What we could not see</summary>
+            <p>{checks.couldNotSee}</p>
           </details>
         </section>
       ) : null}

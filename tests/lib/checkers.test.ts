@@ -127,8 +127,12 @@ test("Supabase readable fixture uses HEAD probes and reports anonymous read prec
     (finding) => finding.reasonCode === "supabase_anon_read_probe_allowed"
   );
   assert.ok(readFinding);
+  assert.equal(readFinding.severity, "critical");
+  assert.equal(readFinding.tier, "critical");
+  assert.equal(readFinding.rlsInference, "confirmed_open");
+  assert.equal(readFinding.runbookCode, "RLS_LOCKDOWN_INCIDENT");
   assert.equal(readFinding.confidence, "confirmed");
-  assert.match(readFinding.title, /Anonymous read appears possible/);
+  assert.match(readFinding.title, /Anonymous read confirmed/);
   assert.ok(calls.every((call) => !call.url.includes("select=*") || call.method === "HEAD"));
   assert.ok(!JSON.stringify(findings).includes("secret-row@example.com"));
 });

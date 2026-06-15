@@ -19,6 +19,11 @@ export function createFinding(init: FindingInit): Finding {
   if (!remediations.length) {
     throw new Error(`Finding ${init.reasonCode} is missing remediation data`);
   }
+  for (const remediation of remediations) {
+    if (!remediation.snippet.trim() || !remediation.targetLocation.trim() || !remediation.beginnerContext.trim()) {
+      throw new Error(`Finding ${init.reasonCode} has incomplete remediation data`);
+    }
+  }
 
   return {
     ...init,
@@ -27,7 +32,13 @@ export function createFinding(init: FindingInit): Finding {
   };
 }
 
-export function defaultFindingClassification(finding: Pick<Finding, "type" | "reasonCode" | "severity">): {
+function evidenceMentionsLikelyPrivateSupabaseTable(finding: Partial<Pick<Finding, "evidence">>) {
+  return finding.evidence?.some((item) => /\/rest\/v1\/(?:profiles|users)\?/.test(item.value)) ?? false;
+}
+
+export function defaultFindingClassification(
+  finding: Pick<Finding, "type" | "reasonCode" | "severity"> & Partial<Pick<Finding, "evidence">>
+): {
   tier: FindingTier;
   location: FindingLocation;
   rlsInference: RlsInference;
@@ -62,6 +73,15 @@ export function defaultFindingClassification(finding: Pick<Finding, "type" | "re
 
   if (finding.type === "supabase_rls") {
     const anonRead = finding.reasonCode === "supabase_anon_read_probe_allowed";
+    if (anonRead && evidenceMentionsLikelyPrivateSupabaseTable(finding)) {
+      return {
+        tier: "critical",
+        location: "supabase_rest",
+        rlsInference: "confirmed_open",
+        runbookCode: "RLS_LOCKDOWN_INCIDENT"
+      };
+    }
+
     return {
       tier: "public_by_design",
       location:
@@ -143,4 +163,3 @@ export function normalizeFindingForDisplay(finding: Finding): Finding {
     fixPrompts: finding.fixPrompts ?? fixPromptsFor(finding.type)
   };
 }
-

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type {
   AuthorizationArtifact,
+  CheckStatusItem,
   Finding,
   PublicAsset,
   ScanReport,
@@ -73,6 +74,7 @@ export async function runScan(input: {
   const checksSkipped: string[] = [];
   const checksDisabled = disabled.disabled;
   const checkerBudgets: Record<string, { max: number; used: number }> = {};
+  const checkStatuses: Record<string, CheckStatusItem> = {};
   const budget = new ScanBudget(TOTAL_REQUEST_BUDGET);
   const findings: Finding[] = [];
   let status: ScanStatus = "complete";
@@ -81,15 +83,57 @@ export async function runScan(input: {
   let supabaseContext: SupabaseContext = { serviceRoleKeyFingerprints: [] };
   let authorization: AuthorizationArtifact | undefined;
 
-  async function runWithBudget<T>(checkId: keyof typeof CHECK_BUDGETS, fn: (scoped: ScanBudget) => Promise<T>) {
+  for (const checkId of checksDisabled) {
+    checkStatuses[checkId] = {
+      status: "disabled",
+      requestsUsed: 0,
+      maxRequests: CHECK_BUDGETS[checkId],
+      reason: "Disabled by DISABLED_CHECKS"
+    };
+  }
+
+  function markSkipped(checkId: string, reason: string) {
+    checkStatuses[checkId] = {
+      status: "skipped",
+      requestsUsed: 0,
+      maxRequests: checkId in CHECK_BUDGETS ? CHECK_BUDGETS[checkId as CheckId] : undefined,
+      reason
+    };
+  }
+
+  function markCompleted(checkId: CheckId, requestsUsed: number) {
+    checkStatuses[checkId] = {
+      status: "completed",
+      requestsUsed,
+      maxRequests: CHECK_BUDGETS[checkId]
+    };
+  }
+
+  function recordCheckerBudget(checkId: CheckId, scoped: ScanBudget) {
+    const used = scoped.count();
+    checkerBudgets[checkId] = {
+      max: CHECK_BUDGETS[checkId],
+      used
+    };
+    return used;
+  }
+
+  async function runWithBudget<T>(checkId: CheckId, fn: (scoped: ScanBudget) => Promise<T>) {
     const scoped = budget.scope(checkId, CHECK_BUDGETS[checkId]);
     try {
-      return await fn(scoped);
-    } finally {
-      checkerBudgets[checkId] = {
-        max: CHECK_BUDGETS[checkId],
-        used: scoped.count()
+      const result = await fn(scoped);
+      markCompleted(checkId, recordCheckerBudget(checkId, scoped));
+      return result;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Check did not finish.";
+      const used = recordCheckerBudget(checkId, scoped);
+      checkStatuses[checkId] = {
+        status: "incomplete",
+        requestsUsed: used,
+        maxRequests: CHECK_BUDGETS[checkId],
+        reason
       };
+      throw err;
     }
   }
 
@@ -105,9 +149,14 @@ export async function runScan(input: {
       enabled("public_api_surface") ||
       (input.authorizedSupabaseProbe && enabled("supabase_rls_authorized_probe"));
 
-    assets = needsAssets
-      ? await runWithBudget("asset_collection", (scoped) => collectPublicAssets(target.toString(), scoped))
-      : [];
+    if (needsAssets) {
+      assets = await runWithBudget("asset_collection", (scoped) =>
+        collectPublicAssets(target.toString(), scoped)
+      );
+    } else {
+      assets = [];
+      markSkipped("asset_collection", "No enabled check needed page assets.");
+    }
     const analysis = analyzeSecrets(assets);
     supabaseContext = analysis.supabaseContext;
 
@@ -137,6 +186,7 @@ export async function runScan(input: {
         max: CHECK_BUDGETS.client_bundle_secrets,
         used: checkerBudgets.asset_collection?.used ?? 0
       };
+      markCompleted("client_bundle_secrets", checkerBudgets.asset_collection?.used ?? 0);
       findings.push(...analysis.findings);
     }
 
@@ -196,9 +246,13 @@ export async function runScan(input: {
       if (!enabled("supabase_rls_authorized_probe")) {
         // Disabled checks are represented in checksDisabled rather than checksSkipped.
       } else {
+        const skipReason = input.authorizedSupabaseProbe
+          ? "Supabase probe disabled by operator configuration."
+          : "Supabase probe requires the ownership checkbox.";
         checksSkipped.push(
           input.authorizedSupabaseProbe ? "supabase_probe_disabled_by_operator" : "supabase_probe_requires_authorization"
         );
+        markSkipped("supabase_rls_authorized_probe", skipReason);
       }
     }
 
@@ -210,6 +264,7 @@ export async function runScan(input: {
     status = "incomplete";
     incompleteReason = err instanceof Error ? err.message : "The scanner stopped before finishing.";
     checksSkipped.push("scan_incomplete");
+    markSkipped("scan_incomplete", incompleteReason);
   }
 
   const sortedFindings = findings.sort(
@@ -236,7 +291,8 @@ export async function runScan(input: {
       checksSkipped,
       checksDisabled,
       unknownDisabledChecks: disabled.unknown,
-      checkerBudgets
+      checkerBudgets,
+      checkStatuses
     },
     findings: sortedFindings,
     authorization,

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ReportView } from "@/components/ReportView";
 import { classifyReport } from "@/lib/report/classification";
 import { createFinding } from "@/lib/report/findingModel";
-import type { Finding, ScanReport, ScanStatus } from "@/lib/types";
+import type { CheckStatusItem, Finding, ScanReport, ScanStatus } from "@/lib/types";
 
 function baseFinding(overrides: Partial<Finding>): Finding {
   return createFinding({
@@ -29,6 +29,35 @@ function baseFinding(overrides: Partial<Finding>): Finding {
 
 function report(findings: Finding[], status: ScanStatus = "complete"): ScanReport {
   const classification = classifyReport({ status, findings, incompleteReason: "request budget exceeded" });
+  const checkStatuses: Record<string, CheckStatusItem> =
+    status === "incomplete"
+      ? {
+          security_headers: {
+            status: "completed" as const,
+            requestsUsed: 1,
+            maxRequests: 1
+          },
+          cors: {
+            status: "incomplete" as const,
+            requestsUsed: 5,
+            maxRequests: 5,
+            reason: "request budget exceeded"
+          }
+        }
+      : {
+          security_headers: {
+            status: "completed" as const,
+            requestsUsed: 1,
+            maxRequests: 1
+          },
+          supabase_rls_authorized_probe: {
+            status: "skipped" as const,
+            requestsUsed: 0,
+            maxRequests: 5,
+            reason: "Supabase probe requires the ownership checkbox."
+          }
+        };
+
   return {
     id: "00000000-0000-4000-8000-000000000000",
     targetOrigin: "https://example.com",
@@ -46,7 +75,8 @@ function report(findings: Finding[], status: ScanStatus = "complete"): ScanRepor
       checksSkipped: ["supabase_probe_requires_authorization"],
       checksDisabled: [],
       unknownDisabledChecks: [],
-      checkerBudgets: {}
+      checkerBudgets: {},
+      checkStatuses
     },
     findings,
     aggregate: {
@@ -77,8 +107,12 @@ test("clean report renders green progressive disclosure", () => {
 test("fixable report renders remediation checklist and copy buttons", () => {
   const html = render(report([baseFinding({})]));
   assert.match(html, /Fixable/);
+  assert.match(html, /Hygiene score C · 72\/100/);
   assert.match(html, /Copy fix/);
-  assert.match(html, /next.config.js|hosting headers|edge middleware/);
+  assert.match(html, /next.config.js/);
+  assert.match(html, /vercel.json/);
+  assert.match(html, /async headers\(\)/);
+  assert.match(html, /Content-Security-Policy/);
 });
 
 test("incident report renders procedural runbook before evidence", () => {
@@ -97,9 +131,32 @@ test("incident report renders procedural runbook before evidence", () => {
   );
   assert.match(html, /Incident runbook/);
   assert.match(html, /Stop the bleeding/);
+  assert.match(html, /If active abuse is suspected/);
   assert.match(html, /Assess blast radius/);
   assert.match(html, /Remediate/);
   assert.match(html, /grep -RInE/);
+});
+
+test("Supabase incident report renders emergency fork and RLS lockdown SQL", () => {
+  const html = render(
+    report([
+      baseFinding({
+        type: "supabase_rls",
+        title: "Anonymous read confirmed on likely private Supabase table \"profiles\"",
+        severity: "critical",
+        reasonCode: "supabase_anon_read_probe_allowed",
+        tier: "critical",
+        location: "supabase_rest",
+        rlsInference: "confirmed_open",
+        runbookCode: "RLS_LOCKDOWN_INCIDENT",
+        evidence: [{ label: "Read-only probe", value: "HEAD /rest/v1/profiles?select=* returned 200" }]
+      })
+    ])
+  );
+
+  assert.match(html, /If active abuse is suspected/);
+  assert.match(html, /alter table public\.&lt;TABLE_NAME&gt; enable row level security/);
+  assert.match(html, /Supabase Logs/);
 });
 
 test("incomplete report renders neutral no-safety-claim copy", () => {
@@ -107,5 +164,5 @@ test("incomplete report renders neutral no-safety-claim copy", () => {
   assert.match(html, /Incomplete/);
   assert.match(html, /Do not treat this as clean/);
   assert.match(html, /request budget exceeded/);
+  assert.match(html, /cors incomplete/);
 });
-

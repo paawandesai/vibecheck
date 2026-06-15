@@ -9,6 +9,67 @@ where created_at >= '<LOOKBACK_START_ISO>'
 order by created_at desc
 limit 200;`;
 
+const EMERGENCY_ROTATION_CONTEXT =
+  "If active abuse is suspected, rotate or revoke the exposed access immediately even if that causes downtime. If you do not see active abuse, locate usage first so you can rotate without breaking production.";
+
+const NEXT_SECURITY_HEADERS = `const securityHeaders = [
+  {
+    key: "Content-Security-Policy",
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",
+      "font-src 'self' data:",
+      "connect-src 'self' https:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'"
+    ].join("; ")
+  },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }
+];
+
+module.exports = {
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  }
+};`;
+
+const VERCEL_SECURITY_HEADERS = `{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        }
+      ]
+    }
+  ]
+}`;
+
+const RLS_LOCKDOWN_SQL = `alter table public.<TABLE_NAME> enable row level security;
+
+drop policy if exists "Public read" on public.<TABLE_NAME>;
+
+create policy "Users can read their own rows"
+on public.<TABLE_NAME>
+for select
+to authenticated
+using (auth.uid() = user_id);`;
+
 const catalog: Record<RunbookCode, Remediation[]> = {
   INFO_ONLY: [
     {
@@ -37,13 +98,43 @@ const catalog: Record<RunbookCode, Remediation[]> = {
         "This turns on row-level security and shows the shape of a safer policy. Replace <TABLE_NAME> and user_id with your real table and owner column."
     }
   ],
+  RLS_LOCKDOWN_INCIDENT: [
+    {
+      type: "dashboard_instruction",
+      snippet:
+        "Open Supabase, identify the reported table, and revoke broad anonymous read access. If active abuse is suspected, rotate/revoke exposed access immediately before preserving uptime.",
+      targetLocation: "Supabase dashboard",
+      beginnerContext: EMERGENCY_ROTATION_CONTEXT
+    },
+    {
+      type: "sql",
+      snippet: RLS_LOCKDOWN_SQL,
+      targetLocation: "Supabase SQL Editor",
+      beginnerContext:
+        "This enables row-level security, removes a broad public read policy if one exists, and replaces it with an owner-only example. Replace <TABLE_NAME> and user_id with your real table and owner column."
+    },
+    {
+      type: "dashboard_instruction",
+      snippet:
+        "Review Supabase API Gateway, Auth, and Postgres logs from <LOOKBACK_START_ISO>. Look for unfamiliar IPs, repeated anonymous requests, unexpected endpoints, and unusual row-count patterns.",
+      targetLocation: "Supabase Logs",
+      beginnerContext:
+        "Confirmed anonymous reads on likely private tables can expose user data. Logs help you decide whether anyone accessed it before you locked it down."
+    },
+    {
+      type: "sql",
+      snippet: SUPABASE_AUDIT_SQL,
+      targetLocation: "Supabase SQL Editor",
+      beginnerContext:
+        "Use your deploy or suspected exposure time as <LOOKBACK_START_ISO>. Look for IP addresses, endpoints, or access patterns you do not recognize."
+    }
+  ],
   INCIDENT_ROTATE: [
     {
       type: "shell",
       snippet: INCIDENT_GREP,
       targetLocation: "Terminal at the project root",
-      beginnerContext:
-        "Find where the leaked key is used before deleting it, so you do not break production while rotating it."
+      beginnerContext: EMERGENCY_ROTATION_CONTEXT
     },
     {
       type: "dashboard_instruction",
@@ -126,11 +217,17 @@ const catalog: Record<RunbookCode, Remediation[]> = {
   HEADER_HARDEN: [
     {
       type: "config",
-      snippet:
-        "Add missing browser security headers: Content-Security-Policy, X-Content-Type-Options: nosniff, frame protection, HSTS for HTTPS, and a restrictive Referrer-Policy.",
-      targetLocation: "next.config.js, hosting headers, or edge middleware",
+      snippet: NEXT_SECURITY_HEADERS,
+      targetLocation: "next.config.js",
       beginnerContext:
-        "Headers are guardrails browsers use to reduce common classes of client-side attacks."
+        "This is a conservative Next.js starting point for browser security headers. After adding it, test auth, payments, uploads, analytics, and embedded widgets because CSP may require app-specific allowlists."
+    },
+    {
+      type: "config",
+      snippet: VERCEL_SECURITY_HEADERS,
+      targetLocation: "vercel.json",
+      beginnerContext:
+        "Use this when headers are easier to manage at the Vercel routing layer. After deploying, test auth, payments, uploads, analytics, and embedded widgets because CSP may require app-specific allowlists."
     }
   ],
   CORS_TIGHTEN: [
@@ -158,4 +255,3 @@ const catalog: Record<RunbookCode, Remediation[]> = {
 export function remediationsFor(code: RunbookCode, _type?: FindingType) {
   return catalog[code].map((item) => ({ ...item }));
 }
-

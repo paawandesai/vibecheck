@@ -4,6 +4,7 @@ import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/re
 import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
 const LIKELY_TABLES = ["profiles", "users", "todos"];
+const LIKELY_PRIVATE_TABLES = new Set(["profiles", "users"]);
 
 function supabaseHeaders(anonKey: string) {
   return {
@@ -124,23 +125,28 @@ export async function checkSupabaseExposure(
 
     if (probe.status === 200 || probe.status === 206) {
       const hasCountHeader = Boolean(probe.headers.get("content-range"));
+      const likelyPrivate = LIKELY_PRIVATE_TABLES.has(table);
       findings.push(createFinding({
         id: `supabase_read_${table}_${fingerprint(tableUrl)}`,
         type: "supabase_rls",
-        title: `Anonymous read appears possible on Supabase table "${table}"`,
-        severity: table === "users" || table === "profiles" ? "high" : "medium",
+        title: likelyPrivate
+          ? `Anonymous read confirmed on likely private Supabase table "${table}"`
+          : `Anonymous read appears possible on Supabase table "${table}"`,
+        severity: likelyPrivate ? "critical" : "medium",
         confidence: hasCountHeader ? "confirmed" : "likely",
         reasonCode: "supabase_anon_read_probe_allowed",
-        tier: "public_by_design",
+        tier: likelyPrivate ? "critical" : "public_by_design",
         location: "supabase_rest",
-        rlsInference: "anon_read_possible",
-        runbookCode: "RLS_SELF_CHECK",
-        summary:
-          "A read-only, count-style probe was allowed with the public Supabase anonymous key.",
-        explanation:
-          "Anon/publishable keys are expected in frontend apps, but private tables must still be protected by RLS and least-privilege policies.",
+        rlsInference: likelyPrivate ? "confirmed_open" : "anon_read_possible",
+        runbookCode: likelyPrivate ? "RLS_LOCKDOWN_INCIDENT" : "RLS_SELF_CHECK",
+        summary: likelyPrivate
+          ? "A read-only probe confirmed anonymous access to a likely private table."
+          : "A read-only, count-style probe was allowed with the public Supabase anonymous key.",
+        explanation: likelyPrivate
+          ? "Anyone with the public anon key may be able to read this table unless policies intentionally allow it. Tables named profiles or users usually contain private user data."
+          : "Anon/publishable keys are expected in frontend apps, but private tables must still be protected by RLS and least-privilege policies.",
         limitation:
-          "VibeCheck used a HEAD request and did not request, store, or display database rows. This finding says anonymous read appears possible; it does not claim RLS is globally disabled.",
+          "VibeCheck used a HEAD request and did not request, store, or display database rows. This finding confirms anonymous read access to the reported table, not global RLS status across the project.",
         evidence: [
           {
             label: "Read-only probe",

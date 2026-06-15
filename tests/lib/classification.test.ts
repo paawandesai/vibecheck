@@ -31,7 +31,9 @@ function finding(input: {
 }): Finding {
   return createFinding({
     id: `${input.tier}-${input.location}-${input.runbookCode}`,
-    type: input.runbookCode === "RLS_SELF_CHECK" ? "supabase_rls" : "client_secret",
+    type: input.runbookCode === "RLS_SELF_CHECK" || input.runbookCode === "RLS_LOCKDOWN_INCIDENT"
+      ? "supabase_rls"
+      : "client_secret",
     title: `${input.runbookCode} finding`,
     severity: input.severity ?? (input.tier === "critical" ? "critical" : "medium"),
     confidence: input.confidence ?? "confirmed",
@@ -92,6 +94,15 @@ test("classification matrix routes finding tier, location, and RLS inference", (
       runbookCode: "RLS_SELF_CHECK",
       expectedState: "fixable",
       expectedRunbook: "RLS_SELF_CHECK"
+    },
+    {
+      name: "confirmed open private Supabase read",
+      tier: "critical",
+      location: "supabase_rest",
+      rlsInference: "confirmed_open",
+      runbookCode: "RLS_LOCKDOWN_INCIDENT",
+      expectedState: "incident",
+      expectedRunbook: "RLS_LOCKDOWN_INCIDENT"
     },
     {
       name: "public anon key in private repo",
@@ -179,6 +190,58 @@ test("new findings require structured remediation data", () => {
   assert.ok(result.remediations.length > 0);
   assert.ok(result.remediations.every((item) => item.snippet.trim()));
   assert.ok(result.remediations.every((item) => item.targetLocation.trim()));
+  assert.ok(result.remediations.every((item) => item.beginnerContext.trim()));
+});
+
+test("header hardening remediation includes paste-ready Next and Vercel snippets", () => {
+  const result = createFinding({
+    id: "header-1",
+    type: "security_header",
+    title: "Missing Content Security Policy",
+    severity: "medium",
+    confidence: "confirmed",
+    reasonCode: "missing_content_security_policy",
+    tier: "unknown",
+    location: "response_header",
+    rlsInference: "not_applicable",
+    runbookCode: "HEADER_HARDEN",
+    summary: "summary",
+    explanation: "explanation",
+    limitation: "limitation",
+    evidence: [{ label: "URL", value: "https://example.com" }]
+  });
+
+  const snippets = result.remediations.map((item) => item.snippet).join("\n");
+  assert.match(snippets, /async headers\(\)/);
+  assert.match(snippets, /"headers"/);
+  assert.match(snippets, /Content-Security-Policy/);
+  assert.ok(result.remediations.every((item) => item.beginnerContext.includes("test")));
+});
+
+test("header-only findings route to Fixable instead of Clean", () => {
+  const result = classifyReport({
+    status: "complete",
+    findings: [
+      createFinding({
+        id: "header-only",
+        type: "security_header",
+        title: "Missing Content Security Policy",
+        severity: "medium",
+        confidence: "confirmed",
+        reasonCode: "missing_content_security_policy",
+        tier: "unknown",
+        location: "response_header",
+        rlsInference: "not_applicable",
+        runbookCode: "HEADER_HARDEN",
+        summary: "summary",
+        explanation: "explanation",
+        limitation: "limitation",
+        evidence: [{ label: "URL", value: "https://example.com" }]
+      })
+    ]
+  });
+
+  assert.equal(result.state, "fixable");
 });
 
 test("current checker outputs route to the expected report states", async () => {
@@ -213,7 +276,7 @@ test("current checker outputs route to the expected report states", async () => 
     { name: "leaked key", findings: analyzeSecrets(leakyAssets).findings, state: "incident" },
     { name: "public source map", findings: sourceMapFindings, state: "fixable" },
     { name: "exposed infra critical", findings: infraFindings, state: "incident" },
-    { name: "Supabase anon read", findings: supabaseFindings, state: "fixable" },
+    { name: "Supabase anon read", findings: supabaseFindings, state: "incident" },
     { name: "no findings", findings: [] as Finding[], state: "clean" }
   ] as const;
 

@@ -24,10 +24,15 @@ export type FindingLocation =
   | "private_repo"
   | "committed_env"
   | "unknown";
-export type RlsInference = "unverifiable" | "anon_read_possible" | "not_applicable";
+export type RlsInference =
+  | "unverifiable"
+  | "anon_read_possible"
+  | "confirmed_open"
+  | "not_applicable";
 export type RunbookCode =
   | "INFO_ONLY"
   | "RLS_SELF_CHECK"
+  | "RLS_LOCKDOWN_INCIDENT"
   | "INCIDENT_ROTATE"
   | "INCIDENT_ROTATE_HISTORICAL"
   | "MANUAL_TRIAGE"
@@ -41,7 +46,7 @@ export interface Remediation {
   type: "code" | "shell" | "sql" | "config" | "dashboard_instruction";
   snippet: string;
   targetLocation: string;
-  beginnerContext?: string;
+  beginnerContext: string;
 }
 
 export interface EvidenceItem {
@@ -88,6 +93,16 @@ export interface ScannerMetadata {
   checksDisabled: string[];
   unknownDisabledChecks: string[];
   checkerBudgets: Record<string, { max: number; used: number }>;
+  checkStatuses?: Record<string, CheckStatusItem>;
+}
+
+export type CheckRunStatus = "completed" | "skipped" | "disabled" | "incomplete";
+
+export interface CheckStatusItem {
+  status: CheckRunStatus;
+  requestsUsed: number;
+  maxRequests?: number;
+  reason?: string;
 }
 
 export interface ScanReport {

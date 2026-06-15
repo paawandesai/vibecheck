@@ -216,6 +216,9 @@ test("runScan records disabled and unknown checks", async () => {
     assert.ok(report.scanner.checksDisabled.includes("security_headers"));
     assert.ok(report.scanner.checksDisabled.includes("cors"));
     assert.ok(report.scanner.unknownDisabledChecks.includes("unknown_check"));
+    assert.equal(report.scanner.checkStatuses?.security_headers?.status, "disabled");
+    assert.equal(report.scanner.checkStatuses?.cors?.status, "disabled");
+    assert.equal(report.scanner.checkStatuses?.supabase_rls_authorized_probe?.status, "skipped");
     assert.equal(report.scanner.requestBudget, 35);
   } finally {
     scanConfig.disabledChecks = previousDisabled;

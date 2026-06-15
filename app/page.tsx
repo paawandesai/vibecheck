@@ -22,15 +22,16 @@ export default function HomePage() {
           <article>
             <h2>Read-only by design</h2>
             <p>
-              VibeCheck only checks public app surfaces. It does not exploit, mutate, brute force,
-              bypass auth, or store sensitive target content.
+              VibeCheck checks public pages, client bundles, source-map references, exposed
+              infrastructure paths, headers, bounded CORS preflights on referenced APIs, public API
+              shape metadata, and owner-authorized Supabase read/storage probes.
             </p>
           </article>
           <article>
             <h2>Bounded deep checks</h2>
             <p>
-              Client bundle secrets, source maps, exposed infrastructure, security headers, CORS,
-              referenced APIs, and gated Supabase risk. Bounded checks beat noisy claims.
+              It does not exploit, mutate, brute force, bypass auth, write to databases, or fetch
+              database rows and object contents. Bounded checks beat noisy claims.
             </p>
           </article>
           <article>

@@ -58,8 +58,9 @@ export function ScanForm() {
             onChange={(event) => setAuthorizedSupabaseProbe(event.target.checked)}
           />
           <span>
-            I own this app or have permission to test it. Run the gated Supabase check using
-            read-only, count-style probes only.
+            I own this app or have explicit permission to test it. Run owner-authorized Supabase
+            read/storage checks using bounded HEAD/count-style probes without fetching rows or
+            object contents.
           </span>
         </label>
 

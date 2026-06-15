@@ -44,7 +44,7 @@ export function classifyReport(input: {
       state: "incident",
       stateReason: `Critical finding: ${critical.title}`,
       stateSummary:
-        "A privileged secret or critical public exposure was found. Treat this as an incident and rotate affected keys.",
+        "A privileged secret or critical public exposure was found. Treat this as an incident and lock down affected access.",
       primaryRunbookCode: critical.runbookCode
     };
   }
