@@ -3,8 +3,18 @@ import { createFinding } from "@/lib/report/findingModel";
 import { escapeEvidence, fingerprint, safeUrlForStorage } from "@/lib/scanner/redaction";
 import { safeFetch, type SafeFetchOptions, type ScanBudget } from "@/lib/scanner/safeFetch";
 
-const LIKELY_TABLES = ["profiles", "users", "todos"];
-const LIKELY_PRIVATE_TABLES = new Set(["profiles", "users"]);
+const COMMON_PROBE_TABLES = ["profiles", "users"];
+const SENSITIVE_TABLES = new Set([
+  "profiles",
+  "users",
+  "orders",
+  "payments",
+  "customers",
+  "subscriptions",
+  "invoices",
+  "accounts",
+  "members"
+]);
 
 function supabaseHeaders(anonKey: string) {
   return {
@@ -112,7 +122,9 @@ export async function checkSupabaseExposure(
     }));
   }
 
-  const probeTables = [...new Set([...LIKELY_TABLES, ...discoveredTables])].slice(0, 2);
+  const discoveredSensitive = discoveredTables.filter((table) => SENSITIVE_TABLES.has(table));
+  const discoveredOther = discoveredTables.filter((table) => !SENSITIVE_TABLES.has(table));
+  const probeTables = [...new Set([...discoveredSensitive, ...discoveredOther, ...COMMON_PROBE_TABLES, "todos"])].slice(0, 2);
   for (const table of probeTables) {
     const tableUrl = `${context.url}/rest/v1/${encodeURIComponent(table)}?select=*`;
     const probe = await safeFetch(tableUrl, budget, {
@@ -125,28 +137,28 @@ export async function checkSupabaseExposure(
 
     if (probe.status === 200 || probe.status === 206) {
       const hasCountHeader = Boolean(probe.headers.get("content-range"));
-      const likelyPrivate = LIKELY_PRIVATE_TABLES.has(table);
+      const sensitiveTable = SENSITIVE_TABLES.has(table);
       findings.push(createFinding({
         id: `supabase_read_${table}_${fingerprint(tableUrl)}`,
         type: "supabase_rls",
-        title: likelyPrivate
-          ? `Anonymous read confirmed on likely private Supabase table "${table}"`
-          : `Anonymous read appears possible on Supabase table "${table}"`,
-        severity: likelyPrivate ? "critical" : "medium",
+        title: sensitiveTable
+          ? `Anonymous read probe allowed on sensitive Supabase table "${table}"`
+          : `Anonymous read probe allowed on Supabase table "${table}"`,
+        severity: sensitiveTable ? "critical" : "high",
         confidence: hasCountHeader ? "confirmed" : "likely",
         reasonCode: "supabase_anon_read_probe_allowed",
-        tier: likelyPrivate ? "critical" : "public_by_design",
+        tier: sensitiveTable ? "critical" : "public_by_design",
         location: "supabase_rest",
-        rlsInference: likelyPrivate ? "confirmed_open" : "anon_read_possible",
-        runbookCode: likelyPrivate ? "RLS_LOCKDOWN_INCIDENT" : "RLS_SELF_CHECK",
-        summary: likelyPrivate
-          ? "A read-only probe confirmed anonymous access to a likely private table."
+        rlsInference: sensitiveTable ? "confirmed_open" : "anon_read_possible",
+        runbookCode: sensitiveTable ? "RLS_LOCKDOWN_INCIDENT" : "RLS_SELF_CHECK",
+        summary: sensitiveTable
+          ? "A read-only probe was allowed against a table name that commonly contains private data."
           : "A read-only, count-style probe was allowed with the public Supabase anonymous key.",
-        explanation: likelyPrivate
-          ? "Anyone with the public anon key may be able to read this table unless policies intentionally allow it. Tables named profiles or users usually contain private user data."
-          : "Anon/publishable keys are expected in frontend apps, but private tables must still be protected by RLS and least-privilege policies.",
+        explanation: sensitiveTable
+          ? "Anyone with the public anon key may be able to read this table unless policies intentionally allow it. Sensitive table names often contain user, billing, membership, or account data."
+          : "Anon/publishable keys are expected in frontend apps, but tables still need RLS and least-privilege policies unless they are intentionally public.",
         limitation:
-          "VibeCheck used a HEAD request and did not request, store, or display database rows. This finding confirms anonymous read access to the reported table, not global RLS status across the project.",
+          "VibeCheck used a HEAD request and did not request, store, or display database rows. This finding reports that the anonymous read probe was allowed for the table, not that rows were downloaded.",
         evidence: [
           {
             label: "Read-only probe",

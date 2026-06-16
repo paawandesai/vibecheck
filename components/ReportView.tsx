@@ -1,6 +1,6 @@
 "use client";
 
-import type { Finding, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
+import type { EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
 import { normalizeReportForDisplay } from "@/lib/report/classification";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
@@ -96,31 +96,66 @@ function RemediationBlock({
   );
 }
 
-function FindingEvidence({ finding }: { finding: Finding }) {
+function plural(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+function findingsMetric(rawCount: number, groupCount: number) {
+  return `${plural(rawCount, "finding")} · ${plural(groupCount, "group")}`;
+}
+
+function EvidenceDetails({
+  id,
+  evidence,
+  limitation
+}: {
+  id: string;
+  evidence: EvidenceItem[];
+  limitation: string;
+}) {
   return (
     <details className="finding-details">
       <summary>Evidence and limitation</summary>
       <div className="evidence">
-        {finding.evidence.map((item) => (
-          <div className="evidence-row" key={`${finding.id}-${item.label}`}>
+        {evidence.map((item) => (
+          <div className="evidence-row" key={`${id}-${item.label}-${item.value}`}>
             <span>{item.label}</span>
             <code>{item.value}</code>
           </div>
         ))}
       </div>
-      <p><strong>Limitation:</strong> {finding.limitation}</p>
+      <p><strong>Limitation:</strong> {limitation}</p>
     </details>
   );
 }
 
+function memberEvidence(finding: Finding) {
+  const item = finding.evidence[0];
+  return item ? `${item.label}: ${item.value}` : finding.reasonCode;
+}
+
+function FindingMembers({ group }: { group: FindingDisplayGroup }) {
+  return (
+    <ul className="finding-members" aria-label={`${group.title} members`}>
+      {group.members.map((member) => (
+        <li key={member.id}>
+          <span>{member.title}</span>
+          <code>{memberEvidence(member)}</code>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function IncidentRunbook({
-  findings,
+  groups,
   onCopy
 }: {
-  findings: Finding[];
+  groups: FindingDisplayGroup[];
   onCopy: (snippet: string) => void;
 }) {
-  const primary = findings[0];
+  const primaryGroup = groups[0];
+  const primary = primaryGroup.representative;
   const isAssessment = (item: Remediation) =>
     item.targetLocation.toLowerCase().includes("logs") ||
     item.snippet.includes("auth.audit_log_entries");
@@ -180,19 +215,21 @@ function IncidentRunbook({
           ))}
         </li>
       </ol>
-      {findings.map((finding) => (
-        <article className="finding-card compact-finding" key={finding.id}>
+      {groups.map((group) => (
+        <article className="finding-card compact-finding" key={group.bundleKey}>
           <div className="finding-top">
             <div>
-              <h2>{finding.title}</h2>
-              <p>{finding.summary}</p>
+              <h2>{group.title}</h2>
+              <p>{group.representative.summary}</p>
             </div>
             <div className="pill-row">
-              <span className={`pill ${severityClass[finding.severity]}`}>{finding.severity}</span>
-              <span className="pill">{finding.confidence}</span>
+              <span className={`pill ${severityClass[group.severity]}`}>{group.severity}</span>
+              <span className="pill">{group.confidence}</span>
+              <span className="pill">{plural(group.members.length, "item")}</span>
             </div>
           </div>
-          <FindingEvidence finding={finding} />
+          <FindingMembers group={group} />
+          <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
     </section>
@@ -200,37 +237,39 @@ function IncidentRunbook({
 }
 
 function FixableChecklist({
-  findings,
+  groups,
   onCopy
 }: {
-  findings: Finding[];
+  groups: FindingDisplayGroup[];
   onCopy: (snippet: string) => void;
 }) {
   return (
     <section className="finding-list" aria-label="Fixable findings">
-      {findings.map((finding) => (
-        <article className="finding-card" key={finding.id}>
+      {groups.map((group) => (
+        <article className="finding-card" key={group.bundleKey}>
           <div className="finding-top">
             <div>
-              <h2>{finding.title}</h2>
-              <p>{finding.summary}</p>
+              <h2>{group.title}</h2>
+              <p>{group.representative.summary}</p>
             </div>
             <div className="pill-row">
-              <span className={`pill ${severityClass[finding.severity]}`}>{finding.severity}</span>
-              <span className="pill">{finding.confidence}</span>
+              <span className={`pill ${severityClass[group.severity]}`}>{group.severity}</span>
+              <span className="pill">{group.confidence}</span>
+              <span className="pill">{plural(group.members.length, "item")}</span>
             </div>
           </div>
-          <p>{finding.explanation}</p>
+          <p>{group.representative.explanation}</p>
+          <FindingMembers group={group} />
           <div className="remediation-list">
-            {finding.remediations.map((remediation, index) => (
+            {group.remediations.map((remediation, index) => (
               <RemediationBlock
-                key={`${finding.id}-remediation-${index}`}
+                key={`${group.bundleKey}-remediation-${index}`}
                 remediation={remediation}
                 onCopy={onCopy}
               />
             ))}
           </div>
-          <FindingEvidence finding={finding} />
+          <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
     </section>
@@ -240,8 +279,12 @@ function FixableChecklist({
 export function ReportView({ report }: { report: ScanReport }) {
   const normalized = normalizeReportForDisplay(report);
   const checks = checkedCopy(normalized);
-  const incidentFindings = normalized.findings.filter((finding) => finding.tier === "critical");
-  const fixableFindings = normalized.findings.filter((finding) => finding.tier !== "critical");
+  const incidentGroups = normalized.displayGroups.filter((group) =>
+    group.members.some((finding) => finding.tier === "critical")
+  );
+  const fixableGroups = normalized.displayGroups.filter((group) =>
+    group.members.every((finding) => finding.tier !== "critical")
+  );
 
   async function copyShareLink() {
     await navigator.clipboard.writeText(window.location.href);
@@ -283,7 +326,7 @@ export function ReportView({ report }: { report: ScanReport }) {
         </div>
         <div className="metric">
           <span>Findings</span>
-          <strong>{normalized.findings.length}</strong>
+          <strong>{findingsMetric(normalized.aggregate.findingCount, normalized.displayGroupCount)}</strong>
         </div>
         <div className="metric">
           <span>Requests</span>
@@ -346,12 +389,12 @@ export function ReportView({ report }: { report: ScanReport }) {
         </section>
       ) : null}
 
-      {normalized.state === "incident" && incidentFindings.length > 0 ? (
-        <IncidentRunbook findings={incidentFindings} onCopy={copySnippet} />
+      {normalized.state === "incident" && incidentGroups.length > 0 ? (
+        <IncidentRunbook groups={incidentGroups} onCopy={copySnippet} />
       ) : null}
 
-      {normalized.state === "fixable" || (normalized.state === "incident" && fixableFindings.length > 0) ? (
-        <FixableChecklist findings={fixableFindings} onCopy={copySnippet} />
+      {normalized.state === "fixable" || (normalized.state === "incident" && fixableGroups.length > 0) ? (
+        <FixableChecklist groups={fixableGroups} onCopy={copySnippet} />
       ) : null}
 
       <section className="empty-state" aria-label="Checks run">

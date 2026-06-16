@@ -1,5 +1,16 @@
-import type { Finding, ReportState, RunbookCode, ScanReport, ScanStatus } from "@/lib/types";
+import type {
+  Confidence,
+  DisplayScanReport,
+  EvidenceItem,
+  Finding,
+  FindingDisplayGroup,
+  ReportState,
+  RunbookCode,
+  ScanReport,
+  ScanStatus
+} from "@/lib/types";
 import { normalizeFindingForDisplay } from "@/lib/report/findingModel";
+import { severityRank } from "@/lib/report/scoring";
 
 const publicSurfaceLocations = new Set([
   "client_bundle",
@@ -85,7 +96,79 @@ export function classifyReport(input: {
   };
 }
 
-export function normalizeReportForDisplay(report: ScanReport): ScanReport {
+const confidenceRank: Record<Confidence, number> = {
+  confirmed: 4,
+  likely: 3,
+  informational: 2,
+  not_applicable: 1
+};
+
+function bundleTitle(finding: Finding, count: number) {
+  const suffix = count > 1 ? ` (${count} items)` : "";
+  if (finding.type === "security_header") return `Browser security headers${suffix}`;
+  if (finding.type === "source_map") return `Public source maps exposed${suffix}`;
+  if (finding.type === "cors" || finding.type === "public_api") return `API endpoint exposure${suffix}`;
+  if (finding.type === "client_secret") return `Credential exposure incident${suffix}`;
+  if (finding.runbookCode === "RLS_LOCKDOWN_INCIDENT") return `Supabase anonymous-read incident${suffix}`;
+  if (finding.type === "supabase_rls") return `Supabase access-control review${suffix}`;
+  if (finding.type === "exposed_infrastructure") return `Public infrastructure exposure${suffix}`;
+  return `${finding.title}${suffix}`;
+}
+
+function evidenceKey(item: EvidenceItem) {
+  return `${item.label}|${item.value}|${item.fingerprint ?? ""}`;
+}
+
+function maxSeverity(findings: Finding[]) {
+  return findings.reduce(
+    (max, finding) => (severityRank[finding.severity] > severityRank[max] ? finding.severity : max),
+    findings[0].severity
+  );
+}
+
+function maxConfidence(findings: Finding[]) {
+  return findings.reduce(
+    (max, finding) => (confidenceRank[finding.confidence] > confidenceRank[max] ? finding.confidence : max),
+    findings[0].confidence
+  );
+}
+
+function representativeFinding(findings: Finding[]) {
+  return [...findings].sort((a, b) => {
+    const severityDelta = severityRank[b.severity] - severityRank[a.severity];
+    if (severityDelta) return severityDelta;
+    return confidenceRank[b.confidence] - confidenceRank[a.confidence];
+  })[0];
+}
+
+export function bundleFindingsForDisplay(findings: Finding[]): FindingDisplayGroup[] {
+  const groups = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    const bundleKey = `${finding.runbookCode}|${finding.type}|${finding.location}`;
+    groups.set(bundleKey, [...(groups.get(bundleKey) ?? []), finding]);
+  }
+
+  return [...groups.entries()].map(([bundleKey, members]) => {
+    const representative = representativeFinding(members);
+    const evidence = new Map<string, EvidenceItem>();
+    for (const member of members) {
+      for (const item of member.evidence) evidence.set(evidenceKey(item), item);
+    }
+
+    return {
+      bundleKey,
+      title: bundleTitle(representative, members.length),
+      severity: maxSeverity(members),
+      confidence: maxConfidence(members),
+      representative,
+      members,
+      evidence: [...evidence.values()],
+      remediations: representative.remediations
+    };
+  });
+}
+
+export function normalizeReportForDisplay(report: ScanReport): DisplayScanReport {
   const findings = report.findings.map(normalizeFindingForDisplay);
   const classification = classifyReport({
     status: report.status ?? "complete",
@@ -93,9 +176,13 @@ export function normalizeReportForDisplay(report: ScanReport): ScanReport {
     incompleteReason: report.stateReason
   });
 
+  const displayGroups = bundleFindingsForDisplay(findings);
+
   return {
     ...report,
     ...classification,
-    findings
+    findings,
+    displayGroups,
+    displayGroupCount: displayGroups.length
   };
 }

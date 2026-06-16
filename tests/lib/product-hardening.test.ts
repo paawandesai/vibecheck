@@ -30,6 +30,33 @@ test("security header checker reports missing protections from header metadata",
   assert.ok(findings.some((finding) => finding.type === "security_header"));
 });
 
+test("security header checker suppresses HSTS only on preloaded platform subdomains", () => {
+  const platformFindings = checkSecurityHeaders(
+    {
+      url: "https://demo.vercel.app",
+      type: "html",
+      body: "",
+      truncated: false,
+      headers: {}
+    },
+    "https://demo.vercel.app"
+  );
+  const customFindings = checkSecurityHeaders(
+    {
+      url: ORIGIN,
+      type: "html",
+      body: "",
+      truncated: false,
+      headers: {}
+    },
+    ORIGIN
+  );
+
+  assert.ok(platformFindings.some((finding) => finding.reasonCode === "missing_content_security_policy"));
+  assert.ok(!platformFindings.some((finding) => finding.reasonCode === "missing_hsts"));
+  assert.ok(customFindings.some((finding) => finding.reasonCode === "missing_hsts"));
+});
+
 test("CORS checker only probes referenced API paths and records header metadata", async () => {
   const calls: Array<{ url: string; method: string }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {

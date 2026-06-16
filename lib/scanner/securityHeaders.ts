@@ -1,9 +1,27 @@
-import type { Finding, PublicAsset, Severity } from "@/lib/types";
+import type { Finding, PublicAsset, Severity, StackProfile } from "@/lib/types";
 import { createFinding } from "@/lib/report/findingModel";
+import { remediationsFor } from "@/lib/report/remediations";
 import { escapeEvidence, fingerprint } from "@/lib/scanner/redaction";
 
+const HSTS_PRELOADED_APEXES = new Set(["vercel.app", "netlify.app", "pages.dev", "github.io"]);
+
 function header(asset: PublicAsset, name: string) {
-  return asset.headers?.[name.toLowerCase()] ?? "";
+  const lowerName = name.toLowerCase();
+  for (const [key, value] of Object.entries(asset.headers ?? {})) {
+    if (key.toLowerCase() === lowerName) return value;
+  }
+  return "";
+}
+
+function isPreloadedPlatformSubdomain(targetOrigin: string) {
+  try {
+    const hostname = new URL(targetOrigin).hostname.toLowerCase();
+    return [...HSTS_PRELOADED_APEXES].some(
+      (apex) => hostname !== apex && hostname.endsWith(`.${apex}`)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function finding(
@@ -13,8 +31,10 @@ function finding(
   severity: Severity,
   summary: string,
   explanation: string,
-  observed: string
+  observed: string,
+  stack?: StackProfile
 ): Finding {
+  const runbookCode = "HEADER_HARDEN";
   return createFinding({
     id: `security_header_${reasonCode}_${fingerprint(targetUrl)}`,
     type: "security_header",
@@ -25,7 +45,7 @@ function finding(
     tier: "unknown",
     location: "response_header",
     rlsInference: "not_applicable",
-    runbookCode: "HEADER_HARDEN",
+    runbookCode,
     summary,
     explanation,
     limitation:
@@ -39,11 +59,12 @@ function finding(
         label: "Observed header",
         value: escapeEvidence(observed || "(missing)")
       }
-    ]
+    ],
+    remediations: remediationsFor(runbookCode, "security_header", stack)
   });
 }
 
-export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: string) {
+export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: string, stack?: StackProfile) {
   const findings: Finding[] = [];
   const csp = header(pageAsset, "content-security-policy");
   const hsts = header(pageAsset, "strict-transport-security");
@@ -61,7 +82,8 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "medium",
         "The public page does not send a Content-Security-Policy header.",
         "A CSP helps reduce the blast radius of XSS and unwanted third-party script execution.",
-        csp
+        csp,
+        stack
       )
     );
   } else if (csp.includes("*") || csp.includes("'unsafe-eval'")) {
@@ -73,12 +95,13 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "low",
         "The Content-Security-Policy appears overly permissive.",
         "Wildcard sources or unsafe eval make browser-side injection issues easier to exploit.",
-        csp
+        csp,
+        stack
       )
     );
   }
 
-  if (targetOrigin.startsWith("https://") && !hsts) {
+  if (targetOrigin.startsWith("https://") && !hsts && !isPreloadedPlatformSubdomain(targetOrigin)) {
     findings.push(
       finding(
         targetUrl,
@@ -87,7 +110,8 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "low",
         "The HTTPS site does not send Strict-Transport-Security.",
         "HSTS helps browsers keep future requests on HTTPS and reduces downgrade risk.",
-        hsts
+        hsts,
+        stack
       )
     );
   }
@@ -101,7 +125,8 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "low",
         "The response does not send X-Content-Type-Options: nosniff.",
         "nosniff helps browsers avoid interpreting files as a different content type.",
-        nosniff
+        nosniff,
+        stack
       )
     );
   }
@@ -115,7 +140,8 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "low",
         "The page does not appear to block framing.",
         "Frame protections reduce clickjacking risk for sensitive app surfaces.",
-        frameOptions || csp
+        frameOptions || csp,
+        stack
       )
     );
   }
@@ -129,7 +155,8 @@ export function checkSecurityHeaders(pageAsset: PublicAsset, targetOrigin: strin
         "low",
         "The page has no Referrer-Policy or uses an unsafe policy.",
         "A stricter referrer policy avoids leaking full paths and query strings to other origins.",
-        referrer
+        referrer,
+        stack
       )
     );
   }

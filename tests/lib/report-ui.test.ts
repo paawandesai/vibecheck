@@ -108,11 +108,29 @@ test("fixable report renders remediation checklist and copy buttons", () => {
   const html = render(report([baseFinding({})]));
   assert.match(html, /Fixable/);
   assert.match(html, /Hygiene score C · 72\/100/);
+  assert.match(html, /1 finding · 1 group/);
   assert.match(html, /Copy fix/);
-  assert.match(html, /next.config.js/);
-  assert.match(html, /vercel.json/);
-  assert.match(html, /async headers\(\)/);
+  assert.match(html, /CDN, reverse proxy, or hosting edge/);
+  assert.doesNotMatch(html, /vercel\.json/);
   assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /unsafe-inline/);
+});
+
+test("header-only report renders one grouped card with raw finding count", () => {
+  const findings = [
+    baseFinding({ id: "header-csp", title: "Missing Content Security Policy", reasonCode: "missing_content_security_policy" }),
+    baseFinding({ id: "header-hsts", title: "Missing HSTS header", reasonCode: "missing_hsts", severity: "low" }),
+    baseFinding({ id: "header-nosniff", title: "Missing X-Content-Type-Options nosniff", reasonCode: "missing_nosniff", severity: "low" }),
+    baseFinding({ id: "header-frame", title: "Missing frame embedding protection", reasonCode: "missing_frame_protection", severity: "low" }),
+    baseFinding({ id: "header-referrer", title: "Missing or weak Referrer-Policy", reasonCode: "weak_referrer_policy", severity: "low" })
+  ];
+  const html = render(report(findings));
+
+  assert.match(html, /5 findings · 1 group/);
+  assert.match(html, /Browser security headers \(5 items\)/);
+  assert.equal(html.match(/Copy fix/g)?.length, 1);
+  assert.match(html, /Missing HSTS header/);
+  assert.match(html, /Missing or weak Referrer-Policy/);
 });
 
 test("incident report renders procedural runbook before evidence", () => {

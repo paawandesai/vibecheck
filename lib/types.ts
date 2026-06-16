@@ -49,6 +49,19 @@ export interface Remediation {
   beginnerContext: string;
 }
 
+export type StackHost = "vercel" | "netlify" | "kilo" | "cloudflare_pages" | "github_pages" | "unknown";
+export type StackFramework = "next" | "react" | "static" | "unknown";
+export type StackBackend = "django" | "node" | "unknown";
+export type StackConfidence = "confirmed" | "likely" | "unknown";
+
+export interface StackProfile {
+  host: StackHost;
+  framework: StackFramework;
+  backend: StackBackend;
+  confidence: StackConfidence;
+  signals: string[];
+}
+
 export interface EvidenceItem {
   label: string;
   value: string;
@@ -94,6 +107,7 @@ export interface ScannerMetadata {
   unknownDisabledChecks: string[];
   checkerBudgets: Record<string, { max: number; used: number }>;
   checkStatuses?: Record<string, CheckStatusItem>;
+  stack?: StackProfile;
 }
 
 export type CheckRunStatus = "completed" | "skipped" | "disabled" | "incomplete";
@@ -132,6 +146,22 @@ export interface ScanReport {
     highestSeverity: Severity | "none";
   };
 }
+
+export interface FindingDisplayGroup {
+  bundleKey: string;
+  title: string;
+  severity: Severity;
+  confidence: Confidence;
+  representative: Finding;
+  members: Finding[];
+  evidence: EvidenceItem[];
+  remediations: Remediation[];
+}
+
+export type DisplayScanReport = ScanReport & {
+  displayGroups: FindingDisplayGroup[];
+  displayGroupCount: number;
+};
 
 export type EventName =
   | "scan_started"

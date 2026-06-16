@@ -1,4 +1,4 @@
-import type { FindingType, Remediation, RunbookCode } from "@/lib/types";
+import type { FindingType, Remediation, RunbookCode, StackProfile } from "@/lib/types";
 
 const INCIDENT_GREP =
   "grep -RInE 'service_role|sk_(live|test)_|sk-proj-|postgres(ql)?://|mongodb(\\+srv)?://|redis://|-----BEGIN .*PRIVATE KEY-----' . --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git";
@@ -11,6 +11,9 @@ limit 200;`;
 
 const EMERGENCY_ROTATION_CONTEXT =
   "If active abuse is suspected, rotate or revoke the exposed access immediately even if that causes downtime. If you do not see active abuse, locate usage first so you can rotate without breaking production.";
+
+const CSP_BASELINE_CONTEXT =
+  "This baseline mainly adds frame, sniff, referrer, and transport defenses. It still uses unsafe-inline and unsafe-eval so it does not provide strong XSS protection yet; tighten scripts with nonces or hashes once you know your app's real script needs.";
 
 const NEXT_SECURITY_HEADERS = `const securityHeaders = [
   {
@@ -30,7 +33,7 @@ const NEXT_SECURITY_HEADERS = `const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Frame-Options", value: "DENY" },
-  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" }
 ];
 
 module.exports = {
@@ -53,12 +56,50 @@ const VERCEL_SECURITY_HEADERS = `{
         { "key": "X-Frame-Options", "value": "DENY" },
         {
           "key": "Strict-Transport-Security",
-          "value": "max-age=63072000; includeSubDomains; preload"
+          "value": "max-age=63072000; includeSubDomains"
         }
       ]
     }
   ]
 }`;
+
+const NETLIFY_SECURITY_HEADERS = `[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"`;
+
+const DJANGO_SECURITY_HEADERS = `# settings.py
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_HSTS_SECONDS = 63072000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+X_FRAME_OPTIONS = "DENY"
+REFERRER_POLICY = "strict-origin-when-cross-origin"
+
+# Add django-csp or equivalent middleware, then start with:
+CONTENT_SECURITY_POLICY = {
+    "DIRECTIVES": {
+        "default-src": ("'self'",),
+        "script-src": ("'self'", "'unsafe-inline'", "'unsafe-eval'"),
+        "style-src": ("'self'", "'unsafe-inline'"),
+        "img-src": ("'self'", "data:", "https:"),
+        "font-src": ("'self'", "data:"),
+        "connect-src": ("'self'", "https:"),
+        "frame-ancestors": ("'none'",),
+        "base-uri": ("'self'",),
+        "form-action": ("'self'",)
+    }
+}`;
+
+const GENERIC_SECURITY_HEADERS = `# Add these headers at your CDN, reverse proxy, or hosting edge.
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+X-Frame-Options: DENY
+Strict-Transport-Security: max-age=63072000; includeSubDomains`;
 
 const RLS_LOCKDOWN_SQL = `alter table public.<TABLE_NAME> enable row level security;
 
@@ -214,22 +255,7 @@ const catalog: Record<RunbookCode, Remediation[]> = {
         "Files like .env, .git metadata, and deployment config can reveal how your app works or expose secrets directly."
     }
   ],
-  HEADER_HARDEN: [
-    {
-      type: "config",
-      snippet: NEXT_SECURITY_HEADERS,
-      targetLocation: "next.config.js",
-      beginnerContext:
-        "This is a conservative Next.js starting point for browser security headers. After adding it, test auth, payments, uploads, analytics, and embedded widgets because CSP may require app-specific allowlists."
-    },
-    {
-      type: "config",
-      snippet: VERCEL_SECURITY_HEADERS,
-      targetLocation: "vercel.json",
-      beginnerContext:
-        "Use this when headers are easier to manage at the Vercel routing layer. After deploying, test auth, payments, uploads, analytics, and embedded widgets because CSP may require app-specific allowlists."
-    }
-  ],
+  HEADER_HARDEN: [],
   CORS_TIGHTEN: [
     {
       type: "code",
@@ -252,6 +278,51 @@ const catalog: Record<RunbookCode, Remediation[]> = {
   ]
 };
 
-export function remediationsFor(code: RunbookCode, _type?: FindingType) {
+function headerRemediations(stack?: StackProfile): Remediation[] {
+  const generic: Remediation = {
+    type: "config",
+    snippet: GENERIC_SECURITY_HEADERS,
+    targetLocation: "CDN, reverse proxy, or hosting edge",
+    beginnerContext:
+      `Use this when VibeCheck cannot confidently identify the framework or host. Add the headers where public responses are served, redeploy, then rescan. ${CSP_BASELINE_CONTEXT}`
+  };
+  const next: Remediation = {
+    type: "config",
+    snippet: NEXT_SECURITY_HEADERS,
+    targetLocation: "next.config.js",
+    beginnerContext:
+      `This is a conservative Next.js starting point. After adding it, test auth, payments, uploads, analytics, and embedded widgets because CSP may require app-specific allowlists. ${CSP_BASELINE_CONTEXT}`
+  };
+  const vercel: Remediation = {
+    type: "config",
+    snippet: VERCEL_SECURITY_HEADERS,
+    targetLocation: "vercel.json",
+    beginnerContext:
+      `Use this only for apps deployed on Vercel, where headers can be managed at the routing layer. After deploying, test auth, payments, uploads, analytics, and embedded widgets. ${CSP_BASELINE_CONTEXT}`
+  };
+  const netlify: Remediation = {
+    type: "config",
+    snippet: NETLIFY_SECURITY_HEADERS,
+    targetLocation: "netlify.toml",
+    beginnerContext:
+      `Use this for Netlify-hosted apps. Add the headers block, redeploy, and test any embedded widgets or third-party scripts. ${CSP_BASELINE_CONTEXT}`
+  };
+  const django: Remediation = {
+    type: "config",
+    snippet: DJANGO_SECURITY_HEADERS,
+    targetLocation: "Django settings.py and middleware",
+    beginnerContext:
+      `Use this for Django-backed apps. Make sure SecurityMiddleware is enabled, install/configure a CSP middleware, then test login, uploads, payments, and admin pages. ${CSP_BASELINE_CONTEXT}`
+  };
+
+  if (stack?.backend === "django") return [django, generic];
+  if (stack?.host === "vercel") return stack.framework === "next" ? [next, vercel] : [vercel, generic];
+  if (stack?.host === "netlify") return stack.framework === "next" ? [next, netlify] : [netlify, generic];
+  if (stack?.framework === "next") return [next, generic];
+  return [generic];
+}
+
+export function remediationsFor(code: RunbookCode, _type?: FindingType, stack?: StackProfile) {
+  if (code === "HEADER_HARDEN") return headerRemediations(stack);
   return catalog[code].map((item) => ({ ...item }));
 }

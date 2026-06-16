@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeSecrets } from "@/lib/scanner/secrets";
-import { checkSupabaseExposure } from "@/lib/scanner/supabase";
+import { checkSupabaseExposure, supabaseAnonSelfCheckFinding } from "@/lib/scanner/supabase";
+import { classifyReport } from "@/lib/report/classification";
 import { escapeEvidence } from "@/lib/scanner/redaction";
 import { ScanBudget } from "@/lib/scanner/safeFetch";
 import { checkSourceMaps, findSourceMapReferences } from "@/lib/scanner/sourceMaps";
@@ -132,7 +133,41 @@ test("Supabase readable fixture uses HEAD probes and reports anonymous read prec
   assert.equal(readFinding.rlsInference, "confirmed_open");
   assert.equal(readFinding.runbookCode, "RLS_LOCKDOWN_INCIDENT");
   assert.equal(readFinding.confidence, "confirmed");
-  assert.match(readFinding.title, /Anonymous read confirmed/);
+  assert.match(readFinding.title, /Anonymous read probe allowed/);
   assert.ok(calls.every((call) => !call.url.includes("select=*") || call.method === "HEAD"));
   assert.ok(!JSON.stringify(findings).includes("secret-row@example.com"));
+});
+
+test("Supabase non-sensitive anonymous read stays fixable high review", async () => {
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = input.toString();
+    const method = init?.method ?? "GET";
+    if (url.endsWith("/rest/v1/")) {
+      return new Response(JSON.stringify({ paths: { "/todos": {} } }), { status: 200 });
+    }
+    if (url.includes("/rest/v1/todos") && method === "HEAD") {
+      return new Response(null, { status: 200, headers: { "content-range": "0-0/1" } });
+    }
+    return new Response(null, { status: 401 });
+  };
+  const findings = await checkSupabaseExposure(supabaseContext, new ScanBudget(5), {
+    fetchImpl,
+    resolveHostname: publicResolver
+  });
+  const readFinding = findings.find((finding) => finding.reasonCode === "supabase_anon_read_probe_allowed");
+
+  assert.ok(readFinding);
+  assert.equal(readFinding.severity, "high");
+  assert.equal(readFinding.tier, "public_by_design");
+  assert.equal(readFinding.runbookCode, "RLS_SELF_CHECK");
+  assert.equal(classifyReport({ status: "complete", findings }).state, "fixable");
+});
+
+test("Supabase unverifiable anon key self-check stays fixable", () => {
+  const finding = supabaseAnonSelfCheckFinding(supabaseContext);
+
+  assert.ok(finding);
+  assert.equal(finding.severity, "medium");
+  assert.equal(finding.runbookCode, "RLS_SELF_CHECK");
+  assert.equal(classifyReport({ status: "complete", findings: [finding] }).state, "fixable");
 });

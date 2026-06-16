@@ -6,7 +6,7 @@ import type {
   PublicAsset,
   ScanReport,
   ScanStatus,
-  Severity,
+  StackProfile,
   SupabaseContext
 } from "@/lib/types";
 import { scanConfig } from "@/lib/env";
@@ -22,33 +22,11 @@ import { checkInfrastructure } from "@/lib/scanner/infra";
 import { normalizeScannerUrl, safeFetch, ScanBudget } from "@/lib/scanner/safeFetch";
 import { safeUrlForStorage } from "@/lib/scanner/redaction";
 import { classifyReport } from "@/lib/report/classification";
+import { highestSeverity, scoreReport, severityRank } from "@/lib/report/scoring";
+import { detectStack } from "@/lib/scanner/stack";
 
 export const AUTH_CHECKBOX_TEXT_VERSION = "supabase-ownership-v1";
 const TOTAL_REQUEST_BUDGET = 35;
-
-const severityRank: Record<Severity, number> = {
-  critical: 5,
-  high: 4,
-  medium: 3,
-  low: 2,
-  info: 1
-};
-
-function highestSeverity(findings: Finding[]) {
-  return findings.reduce<Severity | "none">((highest, finding) => {
-    if (highest === "none") return finding.severity;
-    return severityRank[finding.severity] > severityRank[highest] ? finding.severity : highest;
-  }, "none");
-}
-
-function scoreReport(findings: Finding[]) {
-  const highest = highestSeverity(findings);
-  if (highest === "critical") return { grade: "F" as const, score: 35 };
-  if (highest === "high") return { grade: "D" as const, score: 55 };
-  if (highest === "medium") return { grade: "C" as const, score: 72 };
-  if (highest === "low") return { grade: "B" as const, score: 86 };
-  return { grade: "A" as const, score: 96 };
-}
 
 export function requesterFingerprint(input: { ip?: string | null; userAgent?: string | null }) {
   return crypto
@@ -82,6 +60,7 @@ export async function runScan(input: {
   let assets: PublicAsset[] = [];
   let supabaseContext: SupabaseContext = { serviceRoleKeyFingerprints: [] };
   let authorization: AuthorizationArtifact | undefined;
+  let stack: StackProfile | undefined;
 
   for (const checkId of checksDisabled) {
     checkStatuses[checkId] = {
@@ -177,7 +156,10 @@ export async function runScan(input: {
           headers: Object.fromEntries(response.headers.entries())
         };
       });
-      findings.push(...checkSecurityHeaders(headerAsset, targetOrigin));
+      stack = detectStack({ targetOrigin, headerAsset, assets });
+      findings.push(...checkSecurityHeaders(headerAsset, targetOrigin, stack));
+    } else {
+      stack = detectStack({ targetOrigin, assets });
     }
 
     if (enabled("client_bundle_secrets")) {
@@ -292,7 +274,8 @@ export async function runScan(input: {
       checksDisabled,
       unknownDisabledChecks: disabled.unknown,
       checkerBudgets,
-      checkStatuses
+      checkStatuses,
+      stack
     },
     findings: sortedFindings,
     authorization,

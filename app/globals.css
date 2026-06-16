@@ -408,6 +408,32 @@ input[type="email"] {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.finding-members {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding-members li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfb;
+}
+
+.finding-members span {
+  font-weight: 800;
+}
+
+.finding-members code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .pill-row {
   display: flex;
   flex-wrap: wrap;

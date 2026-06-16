@@ -32,8 +32,11 @@ export function createFinding(init: FindingInit): Finding {
   };
 }
 
-function evidenceMentionsLikelyPrivateSupabaseTable(finding: Partial<Pick<Finding, "evidence">>) {
-  return finding.evidence?.some((item) => /\/rest\/v1\/(?:profiles|users)\?/.test(item.value)) ?? false;
+const SENSITIVE_SUPABASE_TABLE_PATTERN =
+  /\/rest\/v1\/(?:profiles|users|orders|payments|customers|subscriptions|invoices|accounts|members)\?/;
+
+function evidenceMentionsSensitiveSupabaseTable(finding: Partial<Pick<Finding, "evidence">>) {
+  return finding.evidence?.some((item) => SENSITIVE_SUPABASE_TABLE_PATTERN.test(item.value)) ?? false;
 }
 
 export function defaultFindingClassification(
@@ -73,7 +76,7 @@ export function defaultFindingClassification(
 
   if (finding.type === "supabase_rls") {
     const anonRead = finding.reasonCode === "supabase_anon_read_probe_allowed";
-    if (anonRead && evidenceMentionsLikelyPrivateSupabaseTable(finding)) {
+    if (anonRead && evidenceMentionsSensitiveSupabaseTable(finding)) {
       return {
         tier: "critical",
         location: "supabase_rest",

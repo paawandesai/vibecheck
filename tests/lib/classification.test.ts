@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyReport } from "@/lib/report/classification";
+import { bundleFindingsForDisplay, classifyReport } from "@/lib/report/classification";
 import { createFinding } from "@/lib/report/findingModel";
+import { remediationsFor } from "@/lib/report/remediations";
+import { scoreReport } from "@/lib/report/scoring";
 import { checkInfrastructure } from "@/lib/scanner/infra";
 import { analyzeSecrets } from "@/lib/scanner/secrets";
 import { checkSourceMaps } from "@/lib/scanner/sourceMaps";
@@ -14,7 +16,8 @@ import type {
   FindingTier,
   RlsInference,
   RunbookCode,
-  Severity
+  Severity,
+  StackProfile
 } from "@/lib/types";
 import { infraExposedFetch } from "../fixtures/infraTargets";
 import { leakyAssets } from "../fixtures/assets";
@@ -26,14 +29,15 @@ function finding(input: {
   rlsInference?: RlsInference;
   runbookCode: RunbookCode;
   severity?: Severity;
-  confidence?: Confidence;
-  reasonCode?: string;
-}): Finding {
-  return createFinding({
-    id: `${input.tier}-${input.location}-${input.runbookCode}`,
-    type: input.runbookCode === "RLS_SELF_CHECK" || input.runbookCode === "RLS_LOCKDOWN_INCIDENT"
-      ? "supabase_rls"
-      : "client_secret",
+	  confidence?: Confidence;
+	  reasonCode?: string;
+	  type?: Finding["type"];
+	}): Finding {
+	  return createFinding({
+	    id: `${input.tier}-${input.location}-${input.runbookCode}`,
+	    type: input.type ?? (input.runbookCode === "RLS_SELF_CHECK" || input.runbookCode === "RLS_LOCKDOWN_INCIDENT"
+	      ? "supabase_rls"
+	      : "client_secret"),
     title: `${input.runbookCode} finding`,
     severity: input.severity ?? (input.tier === "critical" ? "critical" : "medium"),
     confidence: input.confidence ?? "confirmed",
@@ -193,29 +197,164 @@ test("new findings require structured remediation data", () => {
   assert.ok(result.remediations.every((item) => item.beginnerContext.trim()));
 });
 
-test("header hardening remediation includes paste-ready Next and Vercel snippets", () => {
-  const result = createFinding({
-    id: "header-1",
-    type: "security_header",
-    title: "Missing Content Security Policy",
-    severity: "medium",
-    confidence: "confirmed",
-    reasonCode: "missing_content_security_policy",
-    tier: "unknown",
-    location: "response_header",
-    rlsInference: "not_applicable",
-    runbookCode: "HEADER_HARDEN",
-    summary: "summary",
-    explanation: "explanation",
-    limitation: "limitation",
-    evidence: [{ label: "URL", value: "https://example.com" }]
-  });
+test("weighted scoring uses all raw findings and caps incidents to F", () => {
+  const fourFindings = Array.from({ length: 4 }, (_, index) =>
+    finding({
+      tier: "unknown",
+      location: "response_header",
+      runbookCode: "HEADER_HARDEN",
+      severity: "low",
+      reasonCode: `missing_header_${index}`,
+      type: "security_header"
+    })
+  );
+  const fiveFindings = [
+    ...fourFindings,
+    finding({
+      tier: "unknown",
+      location: "response_header",
+      runbookCode: "HEADER_HARDEN",
+      severity: "low",
+      reasonCode: "missing_header_4",
+      type: "security_header"
+    })
+  ];
+  const incident = [
+    finding({
+      tier: "critical",
+      location: "client_bundle",
+      runbookCode: "INCIDENT_ROTATE",
+      severity: "critical"
+    })
+  ];
 
-  const snippets = result.remediations.map((item) => item.snippet).join("\n");
-  assert.match(snippets, /async headers\(\)/);
-  assert.match(snippets, /"headers"/);
-  assert.match(snippets, /Content-Security-Policy/);
-  assert.ok(result.remediations.every((item) => item.beginnerContext.includes("test")));
+  assert.notEqual(scoreReport(fourFindings).score, scoreReport(fiveFindings).score);
+  assert.deepEqual(scoreReport(incident), { grade: "F", score: 35 });
+});
+
+test("display bundling groups related raw findings without changing members", () => {
+  const findings = [
+    finding({
+      tier: "unknown",
+      location: "response_header",
+      runbookCode: "HEADER_HARDEN",
+      severity: "medium",
+      reasonCode: "missing_content_security_policy",
+      type: "security_header"
+    }),
+    finding({
+      tier: "unknown",
+      location: "response_header",
+      runbookCode: "HEADER_HARDEN",
+      severity: "low",
+      reasonCode: "missing_hsts",
+      type: "security_header"
+    }),
+    createFinding({
+      id: "source-map-1",
+      type: "source_map",
+      title: "Public source map",
+      severity: "medium",
+      confidence: "confirmed",
+      reasonCode: "public_source_map_confirmed",
+      tier: "unknown",
+      location: "public_web_path",
+      rlsInference: "not_applicable",
+      runbookCode: "SOURCE_MAP_DISABLE",
+      summary: "summary",
+      explanation: "explanation",
+      limitation: "limitation",
+      evidence: [{ label: "Source map URL", value: "https://example.com/app.js.map" }]
+    }),
+    createFinding({
+      id: "cors-1",
+      type: "cors",
+      title: "Permissive CORS",
+      severity: "high",
+      confidence: "confirmed",
+      reasonCode: "credentialed_permissive_cors",
+      tier: "unknown",
+      location: "referenced_api",
+      rlsInference: "not_applicable",
+      runbookCode: "CORS_TIGHTEN",
+      summary: "summary",
+      explanation: "explanation",
+      limitation: "limitation",
+      evidence: [{ label: "Endpoint", value: "https://example.com/api/me" }]
+    }),
+    createFinding({
+      id: "secret-1",
+      type: "client_secret",
+      title: "Secret in bundle",
+      severity: "critical",
+      confidence: "confirmed",
+      reasonCode: "openai_key_in_client_bundle",
+      tier: "critical",
+      location: "client_bundle",
+      rlsInference: "not_applicable",
+      runbookCode: "INCIDENT_ROTATE",
+      summary: "summary",
+      explanation: "explanation",
+      limitation: "limitation",
+      evidence: [{ label: "Asset", value: "https://example.com/app.js" }]
+    })
+  ];
+
+  const groups = bundleFindingsForDisplay(findings);
+  assert.equal(groups.length, 4);
+  assert.equal(groups.find((group) => group.title.includes("Browser security headers"))?.members.length, 2);
+  assert.ok(groups.some((group) => group.title.includes("Public source maps exposed")));
+  assert.ok(groups.some((group) => group.title.includes("API endpoint exposure")));
+  assert.ok(groups.some((group) => group.title.includes("Credential exposure incident")));
+});
+
+test("stack-aware header remediations keep Vercel config scoped to Vercel", () => {
+  const vercelNext: StackProfile = {
+    host: "vercel",
+    framework: "next",
+    backend: "unknown",
+    confidence: "confirmed",
+    signals: ["x-vercel-id header", "Next.js asset marker"]
+  };
+  const netlify: StackProfile = {
+    host: "netlify",
+    framework: "react",
+    backend: "unknown",
+    confidence: "confirmed",
+    signals: ["x-nf-request-id header"]
+  };
+  const django: StackProfile = {
+    host: "kilo",
+    framework: "unknown",
+    backend: "django",
+    confidence: "likely",
+    signals: ["kiloapps.io hostname", "Django/backend header or CSRF marker"]
+  };
+  const unknown: StackProfile = {
+    host: "unknown",
+    framework: "unknown",
+    backend: "unknown",
+    confidence: "unknown",
+    signals: []
+  };
+
+  assert.deepEqual(
+    remediationsFor("HEADER_HARDEN", "security_header", vercelNext).map((item) => item.targetLocation),
+    ["next.config.js", "vercel.json"]
+  );
+  assert.ok(remediationsFor("HEADER_HARDEN", "security_header", netlify).some((item) => item.targetLocation === "netlify.toml"));
+  assert.ok(remediationsFor("HEADER_HARDEN", "security_header", django).some((item) => item.targetLocation.includes("Django")));
+  for (const profile of [netlify, django, unknown]) {
+    assert.ok(
+      remediationsFor("HEADER_HARDEN", "security_header", profile).every((item) => item.targetLocation !== "vercel.json")
+    );
+  }
+  assert.ok(
+    remediationsFor("HEADER_HARDEN", "security_header", unknown).every((item) =>
+      item.beginnerContext.includes("unsafe-inline")
+    )
+  );
+  assert.ok(!JSON.stringify(remediationsFor("HEADER_HARDEN", "security_header", vercelNext)).includes("preload"));
 });
 
 test("header-only findings route to Fixable instead of Clean", () => {
