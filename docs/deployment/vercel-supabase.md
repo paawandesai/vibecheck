@@ -28,8 +28,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
 NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>
-NEXT_PUBLIC_STRIPE_PAYMENT_LINK=
 NEXT_PUBLIC_PENDO_API_KEY=
+PENDO_INTEGRATION_KEY=<server-only-pendo-integration-key>
 ```
 
 Keep `SUPABASE_SERVICE_ROLE_KEY` server-only. Do not create a `NEXT_PUBLIC_` copy.
@@ -59,6 +59,7 @@ npm exec vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production
 npm exec vercel env add SUPABASE_SERVICE_ROLE_KEY production
 npm exec vercel env add NEXT_PUBLIC_APP_URL production
 npm exec vercel env add NEXT_PUBLIC_PENDO_API_KEY production
+npm exec vercel env add PENDO_INTEGRATION_KEY production
 npm exec vercel deploy --prod
 ```
 

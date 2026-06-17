@@ -21,8 +21,7 @@ create table if not exists public.events (
       'scan_completed',
       'report_viewed',
       'share_clicked',
-      'waitlist_submitted',
-      'stripe_clicked'
+      'waitlist_submitted'
     )
   ),
   report_id uuid references public.reports(id) on delete set null,

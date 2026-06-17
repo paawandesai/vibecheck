@@ -8,8 +8,9 @@ export default function ResponsibleUsePage() {
           VibeCheck is built for builders who want a fast pre-judging or pre-launch sanity check.
           It checks public pages, client bundles, source-map references, exposed infrastructure
           paths, browser security headers, bounded CORS preflights on referenced API routes, public
-          API response-shape metadata, and owner-authorized Supabase read/storage probes while
-          avoiding sensitive target content.
+          API response-shape metadata, public schema/debug routes, Firebase web config, Next.js
+          hydration payloads, React Server Component payloads, AI-era secret patterns, and
+          owner-authorized Supabase read/storage probes while avoiding sensitive target content.
         </p>
 
         <h2>Allowed use</h2>
@@ -23,6 +24,11 @@ export default function ResponsibleUsePage() {
           <li>
             Understand that Supabase probes use bounded HEAD/count-style requests and storage bucket
             metadata checks. They do not fetch database rows or object contents.
+          </li>
+          <li>
+            Treat Firebase config and public schema findings as production self-checks unless the
+            report shows stronger evidence of exposed sensitive data. These map to firebase_config,
+            debug_schema_surface, and client_data_exposure style findings.
           </li>
         </ul>
 

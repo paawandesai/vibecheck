@@ -177,8 +177,7 @@ export type EventName =
   | "scan_completed"
   | "report_viewed"
   | "share_clicked"
-  | "waitlist_submitted"
-  | "stripe_clicked";
+  | "waitlist_submitted";
 
 export interface PublicAsset {
   url: string;

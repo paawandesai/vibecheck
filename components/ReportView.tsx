@@ -4,6 +4,12 @@ import type { EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportSta
 import { normalizeReportForDisplay } from "@/lib/report/classification";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
+declare global {
+  interface Window {
+    pendo?: { track: (event: string, properties?: Record<string, string | number | boolean>) => void };
+  }
+}
+
 const severityClass: Record<Severity, string> = {
   critical: "severity-critical",
   high: "severity-high",
@@ -18,6 +24,17 @@ const stateLabel: Record<ReportState, string> = {
   incident: "Incident runbook",
   incomplete: "Incomplete"
 };
+
+const appUrlFallback = "https://vibecheck-pi-blue.vercel.app";
+const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || appUrlFallback;
+
+function reportShareUrl(reportId: string) {
+  try {
+    return new URL(`/r/${reportId}`, publicAppUrl).toString();
+  } catch {
+    return new URL(`/r/${reportId}`, appUrlFallback).toString();
+  }
+}
 
 async function record(name: "share_clicked", reportId: string) {
   await fetch("/api/events", {
@@ -287,8 +304,19 @@ export function ReportView({ report }: { report: ScanReport }) {
   );
 
   async function copyShareLink() {
-    await navigator.clipboard.writeText(window.location.href);
+    await navigator.clipboard.writeText(reportShareUrl(normalized.id));
     await record("share_clicked", normalized.id);
+
+    if (typeof window !== "undefined" && window.pendo) {
+      window.pendo.track("share_clicked", {
+        reportId: normalized.id,
+        state: normalized.state,
+        grade: normalized.grade,
+        score: normalized.score,
+        findingCount: normalized.aggregate.findingCount,
+        displayGroupCount: normalized.displayGroupCount
+      });
+    }
   }
 
   async function copySnippet(snippet: string) {

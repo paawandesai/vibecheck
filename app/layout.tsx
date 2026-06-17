@@ -5,8 +5,12 @@ import { scanConfig } from "@/lib/env";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(scanConfig.appUrl),
   title: "VibeCheck",
-  description: "Read-only security reports for vibe-coded apps.",
+  description: "Read-only public-surface security reports for vibe-coded apps.",
+  alternates: {
+    canonical: "/"
+  },
   robots: {
     index: true,
     follow: true

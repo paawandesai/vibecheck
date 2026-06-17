@@ -10,8 +10,7 @@ const allowedEvents: EventName[] = [
   "scan_completed",
   "report_viewed",
   "share_clicked",
-  "waitlist_submitted",
-  "stripe_clicked"
+  "waitlist_submitted"
 ];
 
 export async function POST(request: Request) {

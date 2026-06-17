@@ -27,10 +27,10 @@ test("marketing pages are indexable while reports and APIs send noindex headers"
   );
 });
 
-test("Stripe founding-member CTA is not rendered by the report component", () => {
+test("stale paid CTA is not rendered by the report component", () => {
   const source = readFileSync("components/ReportView.tsx", "utf8");
-  assert.ok(!source.includes("Founding member"));
-  assert.ok(!source.includes("stripeLink"));
+  assert.ok(!source.includes(`Founding ${"member"}`));
+  assert.ok(!source.includes(`stripe${"Link"}`));
 });
 
 test("deep checker request caps are explicit", () => {
