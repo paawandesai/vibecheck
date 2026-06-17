@@ -14,6 +14,9 @@ import { collectPublicAssets } from "@/lib/scanner/assets";
 import { CHECK_BUDGETS, type CheckId, isCheckEnabled, parseDisabledChecks } from "@/lib/scanner/checks";
 import { checkCorsExposure } from "@/lib/scanner/cors";
 import { analyzeSecrets } from "@/lib/scanner/secrets";
+import { checkClientDataExposure } from "@/lib/scanner/clientDataExposure";
+import { checkDebugSchemas } from "@/lib/scanner/debugSchemas";
+import { checkFirebaseConfig } from "@/lib/scanner/firebase";
 import { checkPublicApiSurface } from "@/lib/scanner/publicApi";
 import { checkSecurityHeaders } from "@/lib/scanner/securityHeaders";
 import { checkSourceMaps } from "@/lib/scanner/sourceMaps";
@@ -26,7 +29,7 @@ import { highestSeverity, scoreReport, severityRank } from "@/lib/report/scoring
 import { detectStack } from "@/lib/scanner/stack";
 
 export const AUTH_CHECKBOX_TEXT_VERSION = "supabase-ownership-v1";
-const TOTAL_REQUEST_BUDGET = 35;
+const TOTAL_REQUEST_BUDGET = 38;
 
 export function requesterFingerprint(input: { ip?: string | null; userAgent?: string | null }) {
   return crypto
@@ -123,6 +126,8 @@ export async function runScan(input: {
   try {
     const needsAssets =
       enabled("client_bundle_secrets") ||
+      enabled("client_data_exposure") ||
+      enabled("firebase_config") ||
       enabled("exposed_source_maps") ||
       enabled("cors") ||
       enabled("public_api_surface") ||
@@ -172,6 +177,26 @@ export async function runScan(input: {
       findings.push(...analysis.findings);
     }
 
+    if (enabled("client_data_exposure")) {
+      checksRun.push("client_data_exposure");
+      checkerBudgets.client_data_exposure = {
+        max: CHECK_BUDGETS.client_data_exposure,
+        used: checkerBudgets.asset_collection?.used ?? 0
+      };
+      markCompleted("client_data_exposure", checkerBudgets.asset_collection?.used ?? 0);
+      findings.push(...checkClientDataExposure(assets));
+    }
+
+    if (enabled("firebase_config")) {
+      checksRun.push("firebase_config");
+      checkerBudgets.firebase_config = {
+        max: CHECK_BUDGETS.firebase_config,
+        used: checkerBudgets.asset_collection?.used ?? 0
+      };
+      markCompleted("firebase_config", checkerBudgets.asset_collection?.used ?? 0);
+      findings.push(...checkFirebaseConfig(assets));
+    }
+
     if (enabled("exposed_source_maps")) {
       checksRun.push("exposed_source_maps");
       findings.push(
@@ -200,6 +225,15 @@ export async function runScan(input: {
       findings.push(
         ...(await runWithBudget("public_api_surface", (scoped) =>
           checkPublicApiSurface(assets, targetOrigin, scoped)
+        ))
+      );
+    }
+
+    if (enabled("debug_schema_surface")) {
+      checksRun.push("debug_schema_surface");
+      findings.push(
+        ...(await runWithBudget("debug_schema_surface", (scoped) =>
+          checkDebugSchemas(targetOrigin, scoped)
         ))
       );
     }
@@ -287,6 +321,9 @@ export async function runScan(input: {
       hasCorsFinding: sortedFindings.some((finding) => finding.type === "cors"),
       hasSecurityHeaderFinding: sortedFindings.some((finding) => finding.type === "security_header"),
       hasPublicApiFinding: sortedFindings.some((finding) => finding.type === "public_api"),
+      hasClientDataExposureFinding: sortedFindings.some((finding) => finding.type === "client_data_exposure"),
+      hasDebugSchemaFinding: sortedFindings.some((finding) => finding.type === "debug_schema"),
+      hasFirebaseConfigFinding: sortedFindings.some((finding) => finding.type === "firebase_config"),
       findingCount: sortedFindings.length,
       highestSeverity: highest
     }

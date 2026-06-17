@@ -70,7 +70,7 @@ function report(findings: Finding[], status: ScanStatus = "complete"): ScanRepor
       version: "0.1.0",
       mode: "read_only",
       requestCount: 8,
-      requestBudget: 35,
+      requestBudget: 38,
       checksRun: ["security_headers"],
       checksSkipped: ["supabase_probe_requires_authorization"],
       checksDisabled: [],
@@ -87,6 +87,9 @@ function report(findings: Finding[], status: ScanStatus = "complete"): ScanRepor
       hasCorsFinding: findings.some((finding) => finding.type === "cors"),
       hasSecurityHeaderFinding: findings.some((finding) => finding.type === "security_header"),
       hasPublicApiFinding: findings.some((finding) => finding.type === "public_api"),
+      hasClientDataExposureFinding: findings.some((finding) => finding.type === "client_data_exposure"),
+      hasDebugSchemaFinding: findings.some((finding) => finding.type === "debug_schema"),
+      hasFirebaseConfigFinding: findings.some((finding) => finding.type === "firebase_config"),
       findingCount: findings.length,
       highestSeverity: findings[0]?.severity ?? "none"
     }

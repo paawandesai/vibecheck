@@ -13,6 +13,18 @@ const genericPrompts: Record<FindingType, Record<Builder, string>> = {
     supabase:
       "If this is a Supabase service_role key, rotate it immediately, keep it server-only, and use anon/publishable keys in the browser only with RLS and least-privilege grants enabled."
   },
+  client_data_exposure: {
+    lovable:
+      "Find the reported client hydration data, remove private fields from props or server component payloads, and keep user records, roles, emails, tokens, and billing data server-side.",
+    bolt:
+      "Audit the reported Next.js hydration/RSC payload, minimize the serialized data to only what the page needs, and verify private-looking fields are no longer shipped to the browser.",
+    cursor:
+      "Trace where the reported fields are added to props, loader data, or server component payloads, replace broad object spreads with explicit safe fields, and add a regression check.",
+    replit:
+      "Remove private fields from browser-delivered page data, keep the full records on the server, redeploy, and view source to confirm the reported keys are gone.",
+    supabase:
+      "If this data comes from Supabase, select only public columns for browser payloads and rely on RLS plus server routes for private fields."
+  },
   source_map: {
     lovable:
       "Disable production source map publishing for this app, redeploy, and verify the .map URL returns 404 or is blocked from public access.",
@@ -84,6 +96,30 @@ const genericPrompts: Record<FindingType, Record<Builder, string>> = {
       "Move private data access behind authenticated server logic and confirm anonymous requests to the reported API path are blocked or sanitized.",
     supabase:
       "If this API reads Supabase data, enforce RLS and least-privilege server routes before returning data to browsers."
+  },
+  debug_schema: {
+    lovable:
+      "Restrict the reported OpenAPI, Swagger, or GraphQL debug route in production, require admin authentication, or remove it from the public deploy.",
+    bolt:
+      "Disable public schema/debug endpoints for production builds and verify unauthenticated GET requests to the reported path no longer return rich schema metadata.",
+    cursor:
+      "Add a production guard or admin auth check around the reported schema route, then add a test that anonymous production requests do not expose the schema.",
+    replit:
+      "Hide the reported schema/debug route from the public Replit deployment or require admin authentication before serving it.",
+    supabase:
+      "If this route documents Supabase-backed APIs, keep private operations behind auth and avoid publishing internal table or policy details."
+  },
+  firebase_config: {
+    lovable:
+      "Review Firebase Security Rules for the project used by this frontend config and make sure anonymous users can only access intentionally public data.",
+    bolt:
+      "Open Firebase Rules for Firestore, Realtime Database, and Storage, replace broad public rules with least-privilege rules, and retest public access.",
+    cursor:
+      "Audit Firebase initialization usage, confirm the config is public-only, tighten Security Rules, and add emulator tests for anonymous read/write denial.",
+    replit:
+      "Keep Firebase web config in the frontend if needed, but lock down Firestore, Realtime Database, and Storage Rules before redeploying.",
+    supabase:
+      "This is a Firebase rules self-check rather than a Supabase issue. Make sure Firebase rules, not the public web config, are enforcing access."
   }
 };
 

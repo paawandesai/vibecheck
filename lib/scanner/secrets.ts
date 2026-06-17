@@ -9,6 +9,14 @@ interface SecretPattern {
   regex: RegExp;
 }
 
+interface ContextualSecretPattern {
+  provider: string;
+  reasonCode: string;
+  severity: Severity;
+  regex: RegExp;
+  valueGroup: number;
+}
+
 const SECRET_PATTERNS: SecretPattern[] = [
   {
     provider: "Stripe/Clerk secret key",
@@ -17,10 +25,22 @@ const SECRET_PATTERNS: SecretPattern[] = [
     regex: /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/g
   },
   {
+    provider: "OpenRouter API key",
+    reasonCode: "openrouter_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bsk-or-v1-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    provider: "Langfuse secret key",
+    reasonCode: "langfuse_secret_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bsk-lf-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
     provider: "OpenAI API key",
     reasonCode: "openai_key_in_client_bundle",
     severity: "critical",
-    regex: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g
+    regex: /\bsk-(?!(?:ant|or-v1|lf)-)(?:proj-)?[A-Za-z0-9_-]{20,}\b/g
   },
   {
     provider: "Anthropic API key",
@@ -51,6 +71,18 @@ const SECRET_PATTERNS: SecretPattern[] = [
     reasonCode: "huggingface_token_in_client_bundle",
     severity: "critical",
     regex: /\bhf_[A-Za-z0-9]{34}\b/g
+  },
+  {
+    provider: "Pinecone API key",
+    reasonCode: "pinecone_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bpcsk_[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    provider: "LangSmith API key",
+    reasonCode: "langsmith_key_in_client_bundle",
+    severity: "critical",
+    regex: /\blsv2_(?:pt|sk)_[A-Za-z0-9._-]{20,}\b/g
   },
   {
     provider: "GitHub token",
@@ -105,6 +137,16 @@ const SECRET_PATTERNS: SecretPattern[] = [
     reasonCode: "private_key_block_in_client_bundle",
     severity: "critical",
     regex: /-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH) )?PRIVATE KEY-----[\s\S]{20,}?-----END (?:(?:RSA|EC|DSA|OPENSSH) )?PRIVATE KEY-----/g
+  }
+];
+
+const CONTEXTUAL_SECRET_PATTERNS: ContextualSecretPattern[] = [
+  {
+    provider: "DeepSeek API key",
+    reasonCode: "deepseek_key_in_client_bundle",
+    severity: "critical",
+    regex: /\bdeepseek[A-Za-z0-9_$-]*[\s\S]{0,100}?\b(sk-[A-Za-z0-9_-]{20,})\b/gi,
+    valueGroup: 1
   }
 ];
 
@@ -171,27 +213,51 @@ function findAwsPairs(asset: PublicAsset) {
 
 export function analyzeSecrets(assets: PublicAsset[]) {
   const findings = new Map<string, Finding>();
+  const seenSecretFingerprints = new Set<string>();
   const supabaseContext: SupabaseContext = {
     serviceRoleKeyFingerprints: []
   };
+
+  function addSecretFinding(
+    provider: string,
+    reasonCode: string,
+    severity: Severity,
+    value: string,
+    asset: PublicAsset
+  ) {
+    const fp = fingerprint(value);
+    if (seenSecretFingerprints.has(fp)) return;
+    seenSecretFingerprints.add(fp);
+    const finding = secretFinding(provider, reasonCode, severity, value, asset);
+    findings.set(finding.id, finding);
+  }
 
   for (const asset of assets) {
     for (const url of asset.body.match(SUPABASE_URL_PATTERN) ?? []) {
       supabaseContext.url ??= url.toLowerCase();
     }
 
+    for (const pattern of CONTEXTUAL_SECRET_PATTERNS) {
+      pattern.regex.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.regex.exec(asset.body))) {
+        const value = match[pattern.valueGroup];
+        if (!value) continue;
+        addSecretFinding(pattern.provider, pattern.reasonCode, pattern.severity, value, asset);
+      }
+    }
+
     for (const pattern of SECRET_PATTERNS) {
       pattern.regex.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = pattern.regex.exec(asset.body))) {
-        const finding = secretFinding(
+        addSecretFinding(
           pattern.provider,
           pattern.reasonCode,
           pattern.severity,
           match[0],
           asset
         );
-        findings.set(finding.id, finding);
       }
     }
 
@@ -202,18 +268,20 @@ export function analyzeSecrets(assets: PublicAsset[]) {
       }
       if (payload?.role === "service_role") {
         supabaseContext.serviceRoleKeyFingerprints.push(fingerprint(token));
-        const finding = secretFinding(
+        addSecretFinding(
           "Supabase service-role key",
           "supabase_service_role_key_in_client_bundle",
           "critical",
           token,
           asset
         );
-        findings.set(finding.id, finding);
       }
     }
 
     for (const finding of findAwsPairs(asset)) {
+      const fp = finding.evidence.find((item) => item.fingerprint)?.fingerprint;
+      if (fp && seenSecretFingerprints.has(fp)) continue;
+      if (fp) seenSecretFingerprints.add(fp);
       findings.set(finding.id, finding);
     }
   }

@@ -1,7 +1,7 @@
 import type { FindingType, Remediation, RunbookCode, StackProfile } from "@/lib/types";
 
 const INCIDENT_GREP =
-  "grep -RInE 'service_role|sk_(live|test)_|sk-proj-|postgres(ql)?://|mongodb(\\+srv)?://|redis://|-----BEGIN .*PRIVATE KEY-----' . --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git";
+  "grep -RInE 'service_role|sk_(live|test)_|sk-proj-|sk-or-v1-|sk-lf-|pcsk_|lsv2_|postgres(ql)?://|mongodb(\\+srv)?://|redis://|-----BEGIN .*PRIVATE KEY-----' . --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git";
 
 const SUPABASE_AUDIT_SQL = `select created_at, ip_address, payload
 from auth.audit_log_entries
@@ -110,6 +110,35 @@ on public.<TABLE_NAME>
 for select
 to authenticated
 using (auth.uid() = user_id);`;
+
+const CLIENT_DATA_MINIMIZE_SNIPPET = `// Before returning props, loader data, or an RSC payload:
+const safeUser = {
+  id: user.id,
+  displayName: user.displayName
+};
+
+// Do not serialize private fields like email, phone, role, tokens, internal notes, or billing IDs.
+return { props: { user: safeUser } };`;
+
+const DEBUG_SCHEMA_RESTRICT_SNIPPET = `// Example route guard for production schema/debug endpoints.
+if (process.env.NODE_ENV === "production") {
+  return new Response("Not found", { status: 404 });
+}
+
+// In production, serve OpenAPI/GraphQL explorers only behind admin authentication.`;
+
+const FIREBASE_RULES_SNIPPET = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
 
 const catalog: Record<RunbookCode, Remediation[]> = {
   INFO_ONLY: [
@@ -274,6 +303,57 @@ const catalog: Record<RunbookCode, Remediation[]> = {
       targetLocation: "The reported API route",
       beginnerContext:
         "Public APIs should not return private-looking data to anonymous visitors. Require auth or redact fields before returning JSON."
+    }
+  ],
+  CLIENT_DATA_MINIMIZE: [
+    {
+      type: "code",
+      snippet: CLIENT_DATA_MINIMIZE_SNIPPET,
+      targetLocation: "Next.js props, loader, or server component boundary",
+      beginnerContext:
+        "Anything serialized into __NEXT_DATA__ or an RSC stream is delivered to the browser. Send only the fields the page needs, and keep private records, roles, tokens, billing data, and internal notes on the server."
+    },
+    {
+      type: "dashboard_instruction",
+      snippet:
+        "After reducing the payload, reload the public page, view source, and search for the reported field names. Then rescan the deployed URL.",
+      targetLocation: "Browser view-source and VibeCheck rescan",
+      beginnerContext:
+        "This confirms the sensitive-looking data is no longer shipped in the initial HTML or client payload."
+    }
+  ],
+  DEBUG_SCHEMA_RESTRICT: [
+    {
+      type: "code",
+      snippet: DEBUG_SCHEMA_RESTRICT_SNIPPET,
+      targetLocation: "OpenAPI, Swagger, or GraphQL route",
+      beginnerContext:
+        "Schema and explorer routes are useful during development, but in production they can map your API for anonymous visitors. Hide them, require admin auth, or serve a reduced public schema."
+    },
+    {
+      type: "config",
+      snippet:
+        "Block /openapi.json, /swagger.json, and /api/graphql explorer responses at the edge unless the request is authenticated as an admin.",
+      targetLocation: "Hosting edge, reverse proxy, or route middleware",
+      beginnerContext:
+        "VibeCheck only made unauthenticated GET requests to predictable debug paths. If those routes are intentionally public, document why and make sure private operations are not advertised."
+    }
+  ],
+  FIREBASE_RULES_SELF_CHECK: [
+    {
+      type: "dashboard_instruction",
+      snippet:
+        "Open Firebase Console, review Firestore, Realtime Database, and Storage Rules, and confirm anonymous users can only read or write data that is intentionally public.",
+      targetLocation: "Firebase Console > Rules",
+      beginnerContext:
+        "Firebase web config is usually public by design. The real safety control is Security Rules, not hiding the apiKey."
+    },
+    {
+      type: "config",
+      snippet: FIREBASE_RULES_SNIPPET,
+      targetLocation: "Firebase Security Rules",
+      beginnerContext:
+        "This is a safer Firestore starting point: users can access their own document and everything else is denied until you add specific rules."
     }
   ]
 };

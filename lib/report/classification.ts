@@ -108,6 +108,9 @@ function bundleTitle(finding: Finding, count: number) {
   if (finding.type === "security_header") return `Browser security headers${suffix}`;
   if (finding.type === "source_map") return `Public source maps exposed${suffix}`;
   if (finding.type === "cors" || finding.type === "public_api") return `API endpoint exposure${suffix}`;
+  if (finding.type === "debug_schema") return `Public API schema exposure${suffix}`;
+  if (finding.type === "client_data_exposure") return `Client-delivered data exposure${suffix}`;
+  if (finding.type === "firebase_config") return `Firebase rules self-check${suffix}`;
   if (finding.type === "client_secret") return `Credential exposure incident${suffix}`;
   if (finding.runbookCode === "RLS_LOCKDOWN_INCIDENT") return `Supabase anonymous-read incident${suffix}`;
   if (finding.type === "supabase_rls") return `Supabase access-control review${suffix}`;

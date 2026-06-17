@@ -2,12 +2,15 @@ export type Severity = "critical" | "high" | "medium" | "low" | "info";
 export type Confidence = "confirmed" | "likely" | "informational" | "not_applicable";
 export type FindingType =
   | "client_secret"
+  | "client_data_exposure"
   | "source_map"
   | "supabase_rls"
   | "security_header"
   | "cors"
   | "exposed_infrastructure"
-  | "public_api";
+  | "public_api"
+  | "debug_schema"
+  | "firebase_config";
 export type Builder = "lovable" | "bolt" | "cursor" | "replit" | "supabase";
 export type ScanStatus = "complete" | "incomplete";
 export type ReportState = "clean" | "fixable" | "incident" | "incomplete";
@@ -40,7 +43,10 @@ export type RunbookCode =
   | "INFRA_REMOVE"
   | "HEADER_HARDEN"
   | "CORS_TIGHTEN"
-  | "API_AUTH_REVIEW";
+  | "API_AUTH_REVIEW"
+  | "CLIENT_DATA_MINIMIZE"
+  | "DEBUG_SCHEMA_RESTRICT"
+  | "FIREBASE_RULES_SELF_CHECK";
 
 export interface Remediation {
   type: "code" | "shell" | "sql" | "config" | "dashboard_instruction";
@@ -142,6 +148,9 @@ export interface ScanReport {
     hasCorsFinding: boolean;
     hasSecurityHeaderFinding: boolean;
     hasPublicApiFinding: boolean;
+    hasClientDataExposureFinding: boolean;
+    hasDebugSchemaFinding: boolean;
+    hasFirebaseConfigFinding: boolean;
     findingCount: number;
     highestSeverity: Severity | "none";
   };

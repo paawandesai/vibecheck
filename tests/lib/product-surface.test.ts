@@ -38,6 +38,9 @@ test("deep checker request caps are explicit", () => {
   assert.equal(CHECK_BUDGETS.cors, 5);
   assert.equal(CHECK_BUDGETS.exposed_infrastructure, 12);
   assert.equal(CHECK_BUDGETS.public_api_surface, 8);
+  assert.equal(CHECK_BUDGETS.debug_schema_surface, 3);
+  assert.equal(CHECK_BUDGETS.client_data_exposure, 10);
+  assert.equal(CHECK_BUDGETS.firebase_config, 10);
   assert.equal(CHECK_BUDGETS.supabase_rls_authorized_probe, 5);
 });
 

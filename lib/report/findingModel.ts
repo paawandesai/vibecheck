@@ -132,6 +132,33 @@ export function defaultFindingClassification(
     };
   }
 
+  if (finding.type === "client_data_exposure") {
+    return {
+      tier: finding.severity === "critical" ? "critical" : "unknown",
+      location: "client_bundle",
+      rlsInference: "not_applicable",
+      runbookCode: "CLIENT_DATA_MINIMIZE"
+    };
+  }
+
+  if (finding.type === "debug_schema") {
+    return {
+      tier: "unknown",
+      location: "public_web_path",
+      rlsInference: "not_applicable",
+      runbookCode: "DEBUG_SCHEMA_RESTRICT"
+    };
+  }
+
+  if (finding.type === "firebase_config") {
+    return {
+      tier: "public_by_design",
+      location: "client_bundle",
+      rlsInference: "unverifiable",
+      runbookCode: "FIREBASE_RULES_SELF_CHECK"
+    };
+  }
+
   if (finding.type === "exposed_infrastructure") {
     return {
       tier: "unknown",

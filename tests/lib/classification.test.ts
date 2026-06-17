@@ -383,6 +383,71 @@ test("header-only findings route to Fixable instead of Clean", () => {
   assert.equal(result.state, "fixable");
 });
 
+test("new passive detector findings route to expected states", () => {
+  const fixableHydration = createFinding({
+    id: "hydration-fixable",
+    type: "client_data_exposure",
+    title: "Large client hydration payload contains private-looking fields",
+    severity: "medium",
+    confidence: "likely",
+    reasonCode: "next_data_private_shape_in_client_payload",
+    tier: "unknown",
+    location: "client_bundle",
+    rlsInference: "not_applicable",
+    runbookCode: "CLIENT_DATA_MINIMIZE",
+    summary: "summary",
+    explanation: "explanation",
+    limitation: "limitation",
+    evidence: [{ label: "Asset", value: "https://example.com/" }]
+  });
+  const incidentHydration = createFinding({
+    ...fixableHydration,
+    id: "hydration-incident",
+    title: "Sensitive-looking records are serialized to the client",
+    severity: "critical",
+    confidence: "confirmed",
+    reasonCode: "next_data_sensitive_record_dump",
+    tier: "critical"
+  });
+  const debugSchema = createFinding({
+    id: "debug-schema",
+    type: "debug_schema",
+    title: "Public OpenAPI or Swagger schema is exposed",
+    severity: "medium",
+    confidence: "likely",
+    reasonCode: "public_openapi_schema",
+    tier: "unknown",
+    location: "public_web_path",
+    rlsInference: "not_applicable",
+    runbookCode: "DEBUG_SCHEMA_RESTRICT",
+    summary: "summary",
+    explanation: "explanation",
+    limitation: "limitation",
+    evidence: [{ label: "Schema path", value: "https://example.com/openapi.json" }]
+  });
+  const firebase = createFinding({
+    id: "firebase",
+    type: "firebase_config",
+    title: "Firebase browser config detected; audit Security Rules",
+    severity: "medium",
+    confidence: "likely",
+    reasonCode: "firebase_config_in_client_bundle",
+    tier: "public_by_design",
+    location: "client_bundle",
+    rlsInference: "unverifiable",
+    runbookCode: "FIREBASE_RULES_SELF_CHECK",
+    summary: "summary",
+    explanation: "explanation",
+    limitation: "limitation",
+    evidence: [{ label: "Asset", value: "https://example.com/app.js" }]
+  });
+
+  assert.equal(classifyReport({ status: "complete", findings: [fixableHydration] }).state, "fixable");
+  assert.equal(classifyReport({ status: "complete", findings: [incidentHydration] }).state, "incident");
+  assert.equal(classifyReport({ status: "complete", findings: [debugSchema] }).state, "fixable");
+  assert.equal(classifyReport({ status: "complete", findings: [firebase] }).state, "fixable");
+});
+
 test("current checker outputs route to the expected report states", async () => {
   const sourceMapFetch: typeof fetch = async () =>
     new Response(JSON.stringify({ version: 3, sources: ["app.ts"], mappings: "" }), {

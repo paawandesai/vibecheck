@@ -1,11 +1,14 @@
 export const CHECK_BUDGETS = {
   asset_collection: 10,
   client_bundle_secrets: 10,
+  client_data_exposure: 10,
+  firebase_config: 10,
   exposed_source_maps: 8,
   exposed_infrastructure: 12,
   security_headers: 1,
   cors: 5,
   public_api_surface: 8,
+  debug_schema_surface: 3,
   supabase_rls_authorized_probe: 5
 } as const;
 

@@ -346,8 +346,9 @@ export function ReportView({ report }: { report: ScanReport }) {
         <p>
           VibeCheck checks public pages, client bundles, source-map references, exposed
           infrastructure paths, browser security headers, bounded CORS preflights on referenced API
-          routes, public API response-shape metadata, and owner-authorized Supabase read/storage
-          probes. It does not exploit, mutate, brute force, bypass auth, write to databases, or store
+          routes, public API response-shape metadata, predictable schema/debug paths, client
+          hydration payloads, Firebase web config, and owner-authorized Supabase read/storage probes.
+          It does not exploit, mutate, brute force, bypass auth, write to databases, or store
           sensitive target content.
         </p>
       </section>
@@ -357,8 +358,9 @@ export function ReportView({ report }: { report: ScanReport }) {
           <h2>No findings on visible surfaces</h2>
           <p>
             The enabled checks did not find client-bundle secrets, public source maps, exposed
-            infrastructure, unsafe CORS, public API shape risk, weak security headers, or authorized
-            Supabase anonymous-read risk.
+            infrastructure, unsafe CORS, public API shape risk, public schema/debug exposure, risky
+            client hydration payloads, Firebase rules self-check signals, weak security headers, or
+            authorized Supabase anonymous-read risk.
           </p>
           <details open>
             <summary>What we checked</summary>
