@@ -1,13 +1,15 @@
 import { scanConfig } from "@/lib/env";
 
-const PENDO_TRACK_URL = "https://data.pendo.io/data/track";
+const PENDO_TRACK_URL = "https://app.pendo.io/data/track";
 
 export async function pendoTrack(
   event: string,
   properties?: Record<string, string | number | boolean>,
-  context?: { ip?: string | null; userAgent?: string | null; url?: string }
+  context?: { ip?: string | null; userAgent?: string | null; url?: string; visitorId?: string }
 ) {
   if (!scanConfig.pendoIntegrationKey) return;
+
+  const visitorId = context?.visitorId || "anonymous";
 
   try {
     await fetch(PENDO_TRACK_URL, {
@@ -19,8 +21,8 @@ export async function pendoTrack(
       body: JSON.stringify({
         type: "track",
         event,
-        visitorId: "system",
-        accountId: "system",
+        visitorId,
+        accountId: visitorId,
         timestamp: Date.now(),
         properties: properties ?? {},
         ...(context

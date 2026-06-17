@@ -27,6 +27,7 @@ const stateLabel: Record<ReportState, string> = {
 
 const appUrlFallback = "https://vibecheck-pi-blue.vercel.app";
 const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || appUrlFallback;
+const stripeLink = process.env.NEXT_PUBLIC_STRIPE_LINK || "";
 
 function reportShareUrl(reportId: string) {
   try {
@@ -36,7 +37,7 @@ function reportShareUrl(reportId: string) {
   }
 }
 
-async function record(name: "share_clicked", reportId: string) {
+async function record(name: "share_clicked" | "stripe_clicked", reportId: string) {
   await fetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -450,6 +451,26 @@ export function ReportView({ report }: { report: ScanReport }) {
           <button className="secondary-button" type="button" onClick={copyShareLink}>
             Copy share link
           </button>
+          {stripeLink ? (
+            <a
+              className="secondary-button"
+              href={stripeLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                record("stripe_clicked", normalized.id).catch(() => undefined);
+                if (typeof window !== "undefined" && window.pendo) {
+                  window.pendo.track("stripe_clicked", {
+                    reportId: normalized.id,
+                    grade: normalized.grade,
+                    score: normalized.score
+                  });
+                }
+              }}
+            >
+              Founding member
+            </a>
+          ) : null}
         </div>
       </section>
     </div>

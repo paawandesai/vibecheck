@@ -34,6 +34,7 @@ export async function POST(request: Request) {
 
   const requester = requesterFrom(request);
   const authorizedSupabaseProbe = body.authorizedSupabaseProbe === true;
+  const fingerprint = requesterFingerprint(requester);
   let target: URL;
 
   try {
@@ -47,13 +48,13 @@ export async function POST(request: Request) {
         errorMessage: message.substring(0, 200),
         authorizedSupabaseProbe
       },
-      { ip: requester.ip, userAgent: requester.userAgent }
+      { ip: requester.ip, userAgent: requester.userAgent, visitorId: fingerprint }
     );
+    await recordEvent("scan_failed");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
   try {
-    const fingerprint = requesterFingerprint(requester);
     let rateLimit;
     try {
       rateLimit = await consumeScanRateLimit({
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
           reason: rateLimit.reason ?? "Rate limit exceeded.",
           authorizedSupabaseProbe
         },
-        { ip: requester.ip, userAgent: requester.userAgent }
+        { ip: requester.ip, userAgent: requester.userAgent, visitorId: fingerprint }
       );
 
       const response = NextResponse.json(
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
         targetOrigin: target.origin,
         authorizedSupabaseProbe
       },
-      { ip: requester.ip, userAgent: requester.userAgent }
+      { ip: requester.ip, userAgent: requester.userAgent, visitorId: fingerprint }
     );
 
     const report = await runScan({
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
         checksRun: report.scanner.checksRun.join(","),
         authorizedSupabaseProbe
       },
-      { ip: requester.ip, userAgent: requester.userAgent }
+      { ip: requester.ip, userAgent: requester.userAgent, visitorId: fingerprint }
     );
 
     return NextResponse.json({
@@ -149,8 +150,10 @@ export async function POST(request: Request) {
         errorMessage: message.substring(0, 200),
         authorizedSupabaseProbe
       },
-      { ip: requester.ip, userAgent: requester.userAgent }
+      { ip: requester.ip, userAgent: requester.userAgent, visitorId: fingerprint }
     );
+
+    await recordEvent("scan_failed");
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
