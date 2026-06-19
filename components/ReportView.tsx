@@ -1,6 +1,6 @@
 "use client";
 
-import type { EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
+import type { Builder, EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
 import { normalizeReportForDisplay } from "@/lib/report/classification";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
@@ -27,7 +27,13 @@ const stateLabel: Record<ReportState, string> = {
 
 const appUrlFallback = "https://vibecheck-pi-blue.vercel.app";
 const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || appUrlFallback;
-const stripeLink = process.env.NEXT_PUBLIC_STRIPE_LINK || "";
+const builderLabels: Record<Builder, string> = {
+  lovable: "Lovable",
+  bolt: "Bolt",
+  cursor: "Cursor",
+  replit: "Replit",
+  supabase: "Supabase"
+};
 
 function reportShareUrl(reportId: string) {
   try {
@@ -37,7 +43,7 @@ function reportShareUrl(reportId: string) {
   }
 }
 
-async function record(name: "share_clicked" | "stripe_clicked", reportId: string) {
+async function record(name: "share_clicked", reportId: string) {
   await fetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -111,6 +117,39 @@ function RemediationBlock({
       <p>{remediation.beginnerContext}</p>
       <pre><code>{remediation.snippet}</code></pre>
     </div>
+  );
+}
+
+function FixPromptGrid({
+  finding,
+  onCopy
+}: {
+  finding: Finding;
+  onCopy: (snippet: string) => void;
+}) {
+  const prompts = Object.entries(finding.fixPrompts ?? {}) as Array<[Builder, string]>;
+  if (!prompts.length) return null;
+
+  return (
+    <section className="fix-prompts" aria-label={`Copy-paste fix prompts for ${finding.title}`}>
+      <div className="section-heading">
+        <p className="eyebrow">Copy-paste fix prompt</p>
+        <h3>Send this to your builder or coding agent</h3>
+      </div>
+      <div className="prompt-grid">
+        {prompts.map(([builder, prompt]) => (
+          <article className="prompt" key={`${finding.id}-${builder}`}>
+            <div className="prompt-top">
+              <h4>{builderLabels[builder]}</h4>
+              <button className="secondary-button compact-button" type="button" onClick={() => onCopy(prompt)}>
+                Copy prompt
+              </button>
+            </div>
+            <p>{prompt}</p>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -247,6 +286,7 @@ function IncidentRunbook({
             </div>
           </div>
           <FindingMembers group={group} />
+          <FixPromptGrid finding={group.representative} onCopy={onCopy} />
           <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
@@ -287,6 +327,7 @@ function FixableChecklist({
               />
             ))}
           </div>
+          <FixPromptGrid finding={group.representative} onCopy={onCopy} />
           <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
@@ -451,26 +492,6 @@ export function ReportView({ report }: { report: ScanReport }) {
           <button className="secondary-button" type="button" onClick={copyShareLink}>
             Copy share link
           </button>
-          {stripeLink ? (
-            <a
-              className="secondary-button"
-              href={stripeLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => {
-                record("stripe_clicked", normalized.id).catch(() => undefined);
-                if (typeof window !== "undefined" && window.pendo) {
-                  window.pendo.track("stripe_clicked", {
-                    reportId: normalized.id,
-                    grade: normalized.grade,
-                    score: normalized.score
-                  });
-                }
-              }}
-            >
-              Founding member
-            </a>
-          ) : null}
         </div>
       </section>
     </div>

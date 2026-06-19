@@ -113,6 +113,9 @@ test("fixable report renders remediation checklist and copy buttons", () => {
   assert.match(html, /Hygiene score C · 72\/100/);
   assert.match(html, /1 finding · 1 group/);
   assert.match(html, /Copy fix/);
+  assert.match(html, /Copy-paste fix prompt/);
+  assert.match(html, /Copy prompt/);
+  assert.match(html, /Send this to your builder or coding agent/);
   assert.match(html, /CDN, reverse proxy, or hosting edge/);
   assert.doesNotMatch(html, /vercel\.json/);
   assert.match(html, /Content-Security-Policy/);

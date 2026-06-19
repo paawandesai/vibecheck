@@ -11,7 +11,6 @@ const allowedEvents: EventName[] = [
   "report_viewed",
   "share_clicked",
   "waitlist_submitted",
-  "stripe_clicked",
   "scan_failed"
 ];
 

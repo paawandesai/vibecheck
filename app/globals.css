@@ -502,6 +502,17 @@ input[type="email"] {
   gap: 12px;
 }
 
+.fix-prompts {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.section-heading h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
 .prompt {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -509,8 +520,16 @@ input[type="email"] {
   background: #fbfdfb;
 }
 
-.prompt h3 {
-  margin: 0 0 8px;
+.prompt-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.prompt h4 {
+  margin: 0;
   font-size: 0.95rem;
 }
 
