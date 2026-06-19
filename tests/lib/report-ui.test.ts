@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ReportView } from "@/components/ReportView";
-import { classifyReport } from "@/lib/report/classification";
+import { buildAllFixesPrompt, buildSingleFixPrompt, ReportView } from "@/components/ReportView";
+import { classifyReport, normalizeReportForDisplay } from "@/lib/report/classification";
 import { createFinding } from "@/lib/report/findingModel";
 import type { CheckStatusItem, Finding, ScanReport, ScanStatus } from "@/lib/types";
 
@@ -112,6 +112,8 @@ test("fixable report renders remediation checklist and copy buttons", () => {
   assert.match(html, /Fixable/);
   assert.match(html, /Hygiene score C · 72\/100/);
   assert.match(html, /1 finding · 1 group/);
+  assert.match(html, /AI-ready remediation brief/);
+  assert.match(html, /Copy all fixes for Codex/);
   assert.match(html, /Copy fix/);
   assert.match(html, /Copy-paste fix prompt/);
   assert.match(html, /Copy prompt/);
@@ -120,6 +122,37 @@ test("fixable report renders remediation checklist and copy buttons", () => {
   assert.doesNotMatch(html, /vercel\.json/);
   assert.match(html, /Content-Security-Policy/);
   assert.match(html, /unsafe-inline/);
+});
+
+test("all-fixes prompt includes report context and remediation snippets", () => {
+  const generated = buildAllFixesPrompt(report([baseFinding({})]));
+
+  assert.match(generated, /You are Codex working in the target application's repository/);
+  assert.match(generated, /Target: https:\/\/example\.com/);
+  assert.match(generated, /Report state: Fixable \(fixable\)/);
+  assert.match(generated, /Missing Content Security Policy/);
+  assert.match(generated, /Evidence:/);
+  assert.match(generated, /Recommended fixes:/);
+  assert.match(generated, /Content-Security-Policy/);
+  assert.match(generated, /Do not exploit, mutate, brute force, bypass auth, or probe private systems/);
+});
+
+test("single-fix prompt includes context around the copied snippet", () => {
+  const normalized = normalizeReportForDisplay(report([baseFinding({})]));
+  const group = normalized.displayGroups[0];
+  const remediation = group.remediations[0];
+  const generated = buildSingleFixPrompt(normalized, group, remediation);
+
+  assert.match(generated, /Apply this single VibeCheck remediation/);
+  assert.match(generated, /Target: https:\/\/example\.com/);
+  assert.match(generated, /Finding group: Browser security headers/);
+  assert.match(generated, /Representative finding: Missing Content Security Policy/);
+  assert.match(generated, /Evidence:/);
+  assert.match(generated, /URL: https:\/\/example\.com/);
+  assert.match(generated, /Scanner limitation: Headers only/);
+  assert.match(generated, /Target location: CDN, reverse proxy, or hosting edge/);
+  assert.match(generated, /Content-Security-Policy/);
+  assert.match(generated, /Adapt the snippet to the repo's framework/);
 });
 
 test("header-only report renders one grouped card with raw finding count", () => {

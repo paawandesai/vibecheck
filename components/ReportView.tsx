@@ -1,6 +1,6 @@
 "use client";
 
-import type { Builder, EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
+import type { Builder, DisplayScanReport, EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
 import { normalizeReportForDisplay } from "@/lib/report/classification";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
@@ -51,6 +51,151 @@ async function record(name: "share_clicked", reportId: string) {
   }).catch(() => undefined);
 }
 
+function normalizedReport(report: ScanReport | DisplayScanReport): DisplayScanReport {
+  return "displayGroups" in report ? report : normalizeReportForDisplay(report);
+}
+
+function evidenceLine(item: EvidenceItem) {
+  const metadata = item.metadata
+    ? ` (${Object.entries(item.metadata)
+        .map(([key, value]) => `${key}: ${String(value)}`)
+        .join(", ")})`
+    : "";
+  return `- ${item.label}: ${item.value}${metadata}`;
+}
+
+function remediationBlock(remediation: Remediation, index: number) {
+  return [
+    `${index + 1}. ${remediationLabel(remediation)} - ${remediation.targetLocation}`,
+    `Context: ${remediation.beginnerContext}`,
+    "Snippet:",
+    "```",
+    remediation.snippet,
+    "```"
+  ].join("\n");
+}
+
+function groupMemberLines(group: FindingDisplayGroup) {
+  return group.members
+    .map((member) => `- ${member.title} [${member.severity}, ${member.confidence}] (${member.reasonCode})`)
+    .join("\n");
+}
+
+function groupEvidenceLines(group: FindingDisplayGroup) {
+  return group.evidence.length
+    ? group.evidence.map(evidenceLine).join("\n")
+    : "- No structured evidence stored.";
+}
+
+export function buildAllFixesPrompt(report: ScanReport | DisplayScanReport) {
+  const normalized = normalizedReport(report);
+  const groups = normalized.displayGroups;
+
+  return [
+    "You are Codex working in the target application's repository.",
+    "Use this VibeCheck report to fix the public-surface security findings with minimal, production-safe changes.",
+    "",
+    `Target: ${normalized.targetOrigin}`,
+    `Report state: ${stateLabel[normalized.state]} (${normalized.state})`,
+    `Hygiene score: ${normalized.grade} ${normalized.score}/100`,
+    `Findings: ${plural(normalized.aggregate.findingCount, "raw finding")} bundled into ${plural(normalized.displayGroupCount, "display group")}`,
+    "",
+    "Guardrails:",
+    "- Preserve existing app behavior and routes unless a security fix requires a narrow change.",
+    "- Do not fabricate findings, test results, or secret values.",
+    "- Do not exploit, mutate, brute force, bypass auth, or probe private systems.",
+    "- Keep real secrets server-only; never paste real credentials into client code.",
+    "- Prefer the app's existing framework and config patterns.",
+    "- After changes, run the relevant tests/build and rescan the deployed app.",
+    "",
+    "Findings and fixes:",
+    groups.length
+      ? groups
+          .map((group, groupIndex) => {
+            const remediations = group.remediations.length
+              ? group.remediations.map(remediationBlock).join("\n\n")
+              : "No remediation snippets were attached.";
+
+            return [
+              `## ${groupIndex + 1}. ${group.title}`,
+              `Bundle key: ${group.bundleKey}`,
+              `Max severity: ${group.severity}`,
+              `Confidence: ${group.confidence}`,
+              `Representative finding: ${group.representative.title}`,
+              `Why it matters: ${group.representative.explanation}`,
+              `Scanner limitation: ${group.representative.limitation}`,
+              "",
+              "Raw findings in this group:",
+              groupMemberLines(group),
+              "",
+              "Evidence:",
+              groupEvidenceLines(group),
+              "",
+              "Recommended fixes:",
+              remediations
+            ].join("\n");
+          })
+          .join("\n\n")
+      : "No findings to fix.",
+    "",
+    "Deliverable:",
+    "- Implement the smallest safe changes that address these findings.",
+    "- Summarize changed files and verification commands.",
+    "- Call out any fix that needs hosting-provider or dashboard configuration outside the repo."
+  ].join("\n");
+}
+
+export function buildSingleFixPrompt(
+  report: ScanReport | DisplayScanReport,
+  group: FindingDisplayGroup,
+  remediation: Remediation
+) {
+  const normalized = normalizedReport(report);
+
+  return [
+    "You are Codex working in the target application's repository.",
+    "Apply this single VibeCheck remediation with enough context to avoid a blind paste.",
+    "",
+    `Target: ${normalized.targetOrigin}`,
+    `Report state: ${stateLabel[normalized.state]} (${normalized.state})`,
+    `Hygiene score: ${normalized.grade} ${normalized.score}/100`,
+    "",
+    `Finding group: ${group.title}`,
+    `Bundle key: ${group.bundleKey}`,
+    `Severity: ${group.severity}`,
+    `Confidence: ${group.confidence}`,
+    `Representative finding: ${group.representative.title}`,
+    `Why it matters: ${group.representative.explanation}`,
+    `Scanner limitation: ${group.representative.limitation}`,
+    "",
+    "Raw findings in this group:",
+    groupMemberLines(group),
+    "",
+    "Evidence:",
+    groupEvidenceLines(group),
+    "",
+    "Specific remediation to apply:",
+    `Type: ${remediationLabel(remediation)}`,
+    `Target location: ${remediation.targetLocation}`,
+    `Context: ${remediation.beginnerContext}`,
+    "Snippet:",
+    "```",
+    remediation.snippet,
+    "```",
+    "",
+    "Guardrails:",
+    "- Preserve existing app behavior and routes unless this security fix requires a narrow change.",
+    "- Adapt the snippet to the repo's framework and existing configuration style.",
+    "- Do not paste real credentials into client code.",
+    "- If this needs hosting-provider or dashboard configuration outside the repo, call that out clearly.",
+    "",
+    "Deliverable:",
+    "- Implement the smallest safe change for this one fix.",
+    "- Summarize changed files and verification commands.",
+    "- Rescan the deployed app after deployment."
+  ].join("\n");
+}
+
 function checkedCopy(report: ScanReport) {
   const statuses = Object.entries(report.scanner.checkStatuses ?? {});
   if (statuses.length) {
@@ -98,9 +243,11 @@ function remediationLabel(remediation: Remediation) {
 
 function RemediationBlock({
   remediation,
+  copyText,
   onCopy
 }: {
   remediation: Remediation;
+  copyText?: string;
   onCopy: (snippet: string) => void;
 }) {
   return (
@@ -110,7 +257,7 @@ function RemediationBlock({
           <span className="pill">{remediationLabel(remediation)}</span>
           <strong>{remediation.targetLocation}</strong>
         </div>
-        <button className="secondary-button compact-button" type="button" onClick={() => onCopy(remediation.snippet)}>
+        <button className="secondary-button compact-button" type="button" onClick={() => onCopy(copyText ?? remediation.snippet)}>
           Copy fix
         </button>
       </div>
@@ -205,9 +352,11 @@ function FindingMembers({ group }: { group: FindingDisplayGroup }) {
 }
 
 function IncidentRunbook({
+  report,
   groups,
   onCopy
 }: {
+  report: DisplayScanReport;
   groups: FindingDisplayGroup[];
   onCopy: (snippet: string) => void;
 }) {
@@ -245,6 +394,7 @@ function IncidentRunbook({
             <RemediationBlock
               key={`${primary.id}-stop-${index}`}
               remediation={remediation}
+              copyText={buildSingleFixPrompt(report, primaryGroup, remediation)}
               onCopy={onCopy}
             />
           ))}
@@ -256,6 +406,7 @@ function IncidentRunbook({
             <RemediationBlock
               key={`${primary.id}-assess-${index}`}
               remediation={remediation}
+              copyText={buildSingleFixPrompt(report, primaryGroup, remediation)}
               onCopy={onCopy}
             />
           ))}
@@ -267,6 +418,7 @@ function IncidentRunbook({
             <RemediationBlock
               key={`${primary.id}-remediate-${index}`}
               remediation={remediation}
+              copyText={buildSingleFixPrompt(report, primaryGroup, remediation)}
               onCopy={onCopy}
             />
           ))}
@@ -295,9 +447,11 @@ function IncidentRunbook({
 }
 
 function FixableChecklist({
+  report,
   groups,
   onCopy
 }: {
+  report: DisplayScanReport;
   groups: FindingDisplayGroup[];
   onCopy: (snippet: string) => void;
 }) {
@@ -323,6 +477,7 @@ function FixableChecklist({
               <RemediationBlock
                 key={`${group.bundleKey}-remediation-${index}`}
                 remediation={remediation}
+                copyText={buildSingleFixPrompt(report, group, remediation)}
                 onCopy={onCopy}
               />
             ))}
@@ -336,7 +491,7 @@ function FixableChecklist({
 }
 
 export function ReportView({ report }: { report: ScanReport }) {
-  const normalized = normalizeReportForDisplay(report);
+  const normalized = normalizedReport(report);
   const checks = checkedCopy(normalized);
   const incidentGroups = normalized.displayGroups.filter((group) =>
     group.members.some((finding) => finding.tier === "critical")
@@ -365,6 +520,10 @@ export function ReportView({ report }: { report: ScanReport }) {
     await navigator.clipboard.writeText(snippet);
   }
 
+  async function copyAllFixes() {
+    await navigator.clipboard.writeText(buildAllFixesPrompt(normalized));
+  }
+
   return (
     <div className="report-shell">
       <div className="report-title">
@@ -388,6 +547,22 @@ export function ReportView({ report }: { report: ScanReport }) {
           checks.
         </p>
       </section>
+
+      {normalized.displayGroupCount > 0 ? (
+        <section className="agent-fix-panel" aria-label="AI-ready remediation brief">
+          <div>
+            <p className="eyebrow">AI-ready remediation brief</p>
+            <h2>Copy every finding with context</h2>
+            <p>
+              Creates one Codex-friendly task brief with report context, grouped findings, evidence,
+              limitations, and remediation snippets.
+            </p>
+          </div>
+          <button className="primary-button" type="button" onClick={copyAllFixes}>
+            Copy all fixes for Codex
+          </button>
+        </section>
+      ) : null}
 
       <section className="meta-grid" aria-label="Report metadata">
         <div className="metric">
@@ -462,11 +637,11 @@ export function ReportView({ report }: { report: ScanReport }) {
       ) : null}
 
       {normalized.state === "incident" && incidentGroups.length > 0 ? (
-        <IncidentRunbook groups={incidentGroups} onCopy={copySnippet} />
+        <IncidentRunbook report={normalized} groups={incidentGroups} onCopy={copySnippet} />
       ) : null}
 
       {normalized.state === "fixable" || (normalized.state === "incident" && fixableGroups.length > 0) ? (
-        <FixableChecklist groups={fixableGroups} onCopy={copySnippet} />
+        <FixableChecklist report={normalized} groups={fixableGroups} onCopy={copySnippet} />
       ) : null}
 
       <section className="empty-state" aria-label="Checks run">

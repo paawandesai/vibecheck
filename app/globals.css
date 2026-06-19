@@ -496,6 +496,27 @@ input[type="email"] {
   overflow-wrap: anywhere;
 }
 
+.agent-fix-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: #fffdf8;
+}
+
+.agent-fix-panel h2 {
+  margin: 4px 0 6px;
+  font-size: 1.1rem;
+}
+
+.agent-fix-panel p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
 .prompt-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -648,6 +669,11 @@ input[type="email"] {
   }
 
   .report-title {
+    flex-direction: column;
+  }
+
+  .agent-fix-panel {
+    align-items: stretch;
     flex-direction: column;
   }
 
