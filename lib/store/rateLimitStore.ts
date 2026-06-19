@@ -13,9 +13,9 @@ export interface RateLimitResult {
 }
 
 const limits = [
-  { scope: "requester_hour", max: 5, windowMs: 60 * 60 * 1000 },
-  { scope: "requester_day", max: 20, windowMs: 24 * 60 * 60 * 1000 },
-  { scope: "origin_hour", max: 10, windowMs: 60 * 60 * 1000 }
+  { scope: "requester_hour", max: 25, windowMs: 60 * 60 * 1000 },
+  { scope: "requester_day", max: 100, windowMs: 24 * 60 * 60 * 1000 },
+  { scope: "origin_hour", max: 50, windowMs: 60 * 60 * 1000 }
 ] as const;
 
 type LimitScope = (typeof limits)[number]["scope"];

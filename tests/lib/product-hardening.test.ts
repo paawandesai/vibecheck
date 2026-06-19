@@ -259,11 +259,11 @@ test("validation normalizes expected IDs and emails", () => {
   assert.equal(normalizeEmail(" Person@Example.COM "), "person@example.com");
 });
 
-test("development rate limiter blocks the sixth hourly requester scan", async () => {
+test("development rate limiter blocks the twenty-sixth hourly requester scan", async () => {
   const key = `test-${Date.now()}-${Math.random()}`;
   const targetOrigin = `https://target-${Date.now()}.example`;
 
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 25; index += 1) {
     const allowed = await consumeScanRateLimit({ requesterFingerprint: key, targetOrigin });
     assert.equal(allowed.allowed, true);
   }
