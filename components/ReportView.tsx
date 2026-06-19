@@ -1,6 +1,6 @@
 "use client";
 
-import type { Builder, DisplayScanReport, EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
+import type { DisplayScanReport, EvidenceItem, Finding, FindingDisplayGroup, Remediation, ReportState, ScanReport, Severity } from "@/lib/types";
 import { normalizeReportForDisplay } from "@/lib/report/classification";
 import { WaitlistForm } from "@/components/WaitlistForm";
 
@@ -27,13 +27,6 @@ const stateLabel: Record<ReportState, string> = {
 
 const appUrlFallback = "https://vibecheck-pi-blue.vercel.app";
 const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || appUrlFallback;
-const builderLabels: Record<Builder, string> = {
-  lovable: "Lovable",
-  bolt: "Bolt",
-  cursor: "Cursor",
-  replit: "Replit",
-  supabase: "Supabase"
-};
 
 function reportShareUrl(reportId: string) {
   try {
@@ -92,7 +85,7 @@ export function buildAllFixesPrompt(report: ScanReport | DisplayScanReport) {
   const groups = normalized.displayGroups;
 
   return [
-    "You are Codex working in the target application's repository.",
+    "You are an AI coding agent working in the target application's repository.",
     "Use this VibeCheck report to fix the public-surface security findings with minimal, production-safe changes.",
     "",
     `Target: ${normalized.targetOrigin}`,
@@ -153,7 +146,7 @@ export function buildSingleFixPrompt(
   const normalized = normalizedReport(report);
 
   return [
-    "You are Codex working in the target application's repository.",
+    "You are an AI coding agent working in the target application's repository.",
     "Apply this single VibeCheck remediation with enough context to avoid a blind paste.",
     "",
     `Target: ${normalized.targetOrigin}`,
@@ -191,6 +184,50 @@ export function buildSingleFixPrompt(
     "",
     "Deliverable:",
     "- Implement the smallest safe change for this one fix.",
+    "- Summarize changed files and verification commands.",
+    "- Rescan the deployed app after deployment."
+  ].join("\n");
+}
+
+export function buildFindingGroupPrompt(report: ScanReport | DisplayScanReport, group: FindingDisplayGroup) {
+  const normalized = normalizedReport(report);
+  const remediations = group.remediations.length
+    ? group.remediations.map(remediationBlock).join("\n\n")
+    : "No remediation snippets were attached.";
+
+  return [
+    "You are an AI coding agent working in the target application's repository.",
+    "Fix this VibeCheck finding group with minimal, production-safe changes.",
+    "",
+    `Target: ${normalized.targetOrigin}`,
+    `Report state: ${stateLabel[normalized.state]} (${normalized.state})`,
+    `Hygiene score: ${normalized.grade} ${normalized.score}/100`,
+    "",
+    `Finding group: ${group.title}`,
+    `Bundle key: ${group.bundleKey}`,
+    `Severity: ${group.severity}`,
+    `Confidence: ${group.confidence}`,
+    `Representative finding: ${group.representative.title}`,
+    `Why it matters: ${group.representative.explanation}`,
+    `Scanner limitation: ${group.representative.limitation}`,
+    "",
+    "Raw findings in this group:",
+    groupMemberLines(group),
+    "",
+    "Evidence:",
+    groupEvidenceLines(group),
+    "",
+    "Recommended fixes:",
+    remediations,
+    "",
+    "Guardrails:",
+    "- Preserve existing app behavior and routes unless this security fix requires a narrow change.",
+    "- Adapt snippets to the repo's framework and existing configuration style.",
+    "- Do not paste real credentials into client code.",
+    "- If a fix needs hosting-provider or dashboard configuration outside the repo, call that out clearly.",
+    "",
+    "Deliverable:",
+    "- Implement the smallest safe changes for this finding group.",
     "- Summarize changed files and verification commands.",
     "- Rescan the deployed app after deployment."
   ].join("\n");
@@ -268,34 +305,32 @@ function RemediationBlock({
 }
 
 function FixPromptGrid({
-  finding,
+  report,
+  group,
   onCopy
 }: {
-  finding: Finding;
+  report: DisplayScanReport;
+  group: FindingDisplayGroup;
   onCopy: (snippet: string) => void;
 }) {
-  const prompts = Object.entries(finding.fixPrompts ?? {}) as Array<[Builder, string]>;
-  if (!prompts.length) return null;
-
   return (
-    <section className="fix-prompts" aria-label={`Copy-paste fix prompts for ${finding.title}`}>
+    <section className="fix-prompts" aria-label={`Copy-paste fix prompt for ${group.title}`}>
       <div className="section-heading">
         <p className="eyebrow">Copy-paste fix prompt</p>
-        <h3>Send this to your builder or coding agent</h3>
+        <h3>Send this to any AI coding agent</h3>
       </div>
-      <div className="prompt-grid">
-        {prompts.map(([builder, prompt]) => (
-          <article className="prompt" key={`${finding.id}-${builder}`}>
-            <div className="prompt-top">
-              <h4>{builderLabels[builder]}</h4>
-              <button className="secondary-button compact-button" type="button" onClick={() => onCopy(prompt)}>
-                Copy prompt
-              </button>
-            </div>
-            <p>{prompt}</p>
-          </article>
-        ))}
-      </div>
+      <article className="prompt">
+        <div className="prompt-top">
+          <h4>AI coding agent</h4>
+          <button className="secondary-button compact-button" type="button" onClick={() => onCopy(buildFindingGroupPrompt(report, group))}>
+            Copy agent prompt
+          </button>
+        </div>
+        <p>
+          Copies this finding group with evidence, limitations, and remediation snippets in a
+          tool-neutral format.
+        </p>
+      </article>
     </section>
   );
 }
@@ -438,7 +473,7 @@ function IncidentRunbook({
             </div>
           </div>
           <FindingMembers group={group} />
-          <FixPromptGrid finding={group.representative} onCopy={onCopy} />
+          <FixPromptGrid report={report} group={group} onCopy={onCopy} />
           <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
@@ -482,7 +517,7 @@ function FixableChecklist({
               />
             ))}
           </div>
-          <FixPromptGrid finding={group.representative} onCopy={onCopy} />
+          <FixPromptGrid report={report} group={group} onCopy={onCopy} />
           <EvidenceDetails id={group.bundleKey} evidence={group.evidence} limitation={group.representative.limitation} />
         </article>
       ))}
@@ -554,12 +589,12 @@ export function ReportView({ report }: { report: ScanReport }) {
             <p className="eyebrow">AI-ready remediation brief</p>
             <h2>Copy every finding with context</h2>
             <p>
-              Creates one Codex-friendly task brief with report context, grouped findings, evidence,
+              Creates one agent-ready task brief with report context, grouped findings, evidence,
               limitations, and remediation snippets.
             </p>
           </div>
           <button className="primary-button" type="button" onClick={copyAllFixes}>
-            Copy all fixes for Codex
+            Copy all fixes for AI agent
           </button>
         </section>
       ) : null}

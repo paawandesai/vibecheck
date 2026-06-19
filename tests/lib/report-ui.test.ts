@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildAllFixesPrompt, buildSingleFixPrompt, ReportView } from "@/components/ReportView";
+import { buildAllFixesPrompt, buildFindingGroupPrompt, buildSingleFixPrompt, ReportView } from "@/components/ReportView";
 import { classifyReport, normalizeReportForDisplay } from "@/lib/report/classification";
 import { createFinding } from "@/lib/report/findingModel";
 import type { CheckStatusItem, Finding, ScanReport, ScanStatus } from "@/lib/types";
@@ -113,11 +113,15 @@ test("fixable report renders remediation checklist and copy buttons", () => {
   assert.match(html, /Hygiene score C · 72\/100/);
   assert.match(html, /1 finding · 1 group/);
   assert.match(html, /AI-ready remediation brief/);
-  assert.match(html, /Copy all fixes for Codex/);
+  assert.match(html, /Copy all fixes for AI agent/);
   assert.match(html, /Copy fix/);
   assert.match(html, /Copy-paste fix prompt/);
-  assert.match(html, /Copy prompt/);
-  assert.match(html, /Send this to your builder or coding agent/);
+  assert.match(html, /Copy agent prompt/);
+  assert.match(html, /Send this to any AI coding agent/);
+  assert.doesNotMatch(html, /Bolt/);
+  assert.doesNotMatch(html, /Cursor/);
+  assert.doesNotMatch(html, /Lovable/);
+  assert.doesNotMatch(html, /Replit/);
   assert.match(html, /CDN, reverse proxy, or hosting edge/);
   assert.doesNotMatch(html, /vercel\.json/);
   assert.match(html, /Content-Security-Policy/);
@@ -127,7 +131,7 @@ test("fixable report renders remediation checklist and copy buttons", () => {
 test("all-fixes prompt includes report context and remediation snippets", () => {
   const generated = buildAllFixesPrompt(report([baseFinding({})]));
 
-  assert.match(generated, /You are Codex working in the target application's repository/);
+  assert.match(generated, /You are an AI coding agent working in the target application's repository/);
   assert.match(generated, /Target: https:\/\/example\.com/);
   assert.match(generated, /Report state: Fixable \(fixable\)/);
   assert.match(generated, /Missing Content Security Policy/);
@@ -153,6 +157,19 @@ test("single-fix prompt includes context around the copied snippet", () => {
   assert.match(generated, /Target location: CDN, reverse proxy, or hosting edge/);
   assert.match(generated, /Content-Security-Policy/);
   assert.match(generated, /Adapt the snippet to the repo's framework/);
+});
+
+test("finding-group prompt is generic and agent-ready", () => {
+  const normalized = normalizeReportForDisplay(report([baseFinding({})]));
+  const generated = buildFindingGroupPrompt(normalized, normalized.displayGroups[0]);
+
+  assert.match(generated, /You are an AI coding agent working in the target application's repository/);
+  assert.match(generated, /Fix this VibeCheck finding group/);
+  assert.match(generated, /Target: https:\/\/example\.com/);
+  assert.match(generated, /Evidence:/);
+  assert.match(generated, /Recommended fixes:/);
+  assert.match(generated, /tool-neutral|production-safe|smallest safe changes/);
+  assert.doesNotMatch(generated, /Bolt|Cursor|Lovable|Replit/);
 });
 
 test("header-only report renders one grouped card with raw finding count", () => {
